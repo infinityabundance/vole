@@ -73,11 +73,17 @@ fn validate_timeline(
     let mut prev_t = 0u64;
     let limits = crate::limits::Limits::default();
     let mut advance_work: u64 = 0;
+    let mut interval_no = 0u64;
     for (t, trs) in timeline {
         if *t == 0 || *t <= prev_t {
             return Err(VoleError::NonConsecutiveInterval);
         }
         prev_t = *t;
+        interval_no += 1;
+        limits.check_interval_distance(interval_no)?;
+        if trs.len() as u64 > u64::from(limits.max_transitions_per_interval) {
+            return Err(VoleError::MaterializationBudgetExceeded);
+        }
         for tr in trs {
             // Frame-referencing ops carry their own geometry (they don't
             // touch painter state, so `apply` is a no-op); validate their
@@ -118,7 +124,13 @@ fn validate_timeline(
                     return Err(VoleError::MaterializationBudgetExceeded);
                 }
             }
+            if let Transition::Residual { block } = tr {
+                crate::rans::check_block(block, limits.max_residual_bytes)?;
+            }
             tr.apply(&mut st)?;
+            if let Transition::PatchSparse { .. } = tr {
+                limits.check_overlay_points(st.overlay_len() as u64)?;
+            }
             if let Transition::AdvanceTranslations = tr {
                 advance_work += st.moving_count() as u64;
                 if advance_work > limits.max_transition_work {

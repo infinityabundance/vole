@@ -15,14 +15,27 @@
 //! Checkpoint   := 0x03 bg:u8 n:u32 (i:u32 o:u32 x:i32 y:i32)*
 //! Interval     := 0x04 t:u64 n:u32 Transition*
 //! Transition   := ( 0x21 i:u32 o:u32 x:i32 y:i32          # create instance
-//!                |  0x22 i:u32 x:i32 y:i32 )              # set position
+//!                |  0x22 i:u32 x:i32 y:i32              # set position
+//!                |  0x23 n:u32 (x:i32 y:i32 v:u8)*      # sparse overlay patch
+//!                |  0x24 sx:u32 sy:u32 w:u32 h:u32 dx:i32 dy:i32  # COPY_RECT
+//!                |  0x25 sx:u32 sy:u32 w:u32 h:u32 dx:i32 dy:i32  # MOVE_RECT
+//!                |  0x26 i:u32 vx:i32 vy:i32            # set translation
+//!                |  0x27                                 # advance translations
+//!                |  0x28                                 # clear instances
+//!                |  0x29                                 # clear overlay
+//!                |  0x2a len:u32 block                   # per-frame residual
+//!                )
 //! Integrity    := blake3 of every preceding byte (32 bytes)
 //! ```
 //!
 //! v1 invariants: every object is declared before the single checkpoint;
-//! interval indices strictly increase from `1`; `x`/`y` lie in
+//! interval indices strictly increase from `1` and the interval count is
+//! bounded by `Limits.max_checkpoint_distance`; `x`/`y` lie in
 //! `[-MAX_COORD, MAX_COORD]`; unknown universe/profile/feature/tag and any
-//! reference to an undeclared object or instance are typed errors.
+//! reference to an undeclared object or instance are typed errors. A residual
+//! `block` is a Phase-F self-describing payload (see `rans::encode_block`)
+//! bounded by `Limits.max_residual_bytes`, structurally validated at parse
+//! time and decoded only when the frame it appears in is materialized.
 
 use std::collections::HashSet;
 
@@ -57,6 +70,9 @@ pub(crate) const TR_COPY_RECT: u8 = 0x24;
 pub(crate) const TR_MOVE_RECT: u8 = 0x25;
 pub(crate) const TR_SET_VELOCITY: u8 = 0x26;
 pub(crate) const TR_ADVANCE_TRANSLATIONS: u8 = 0x27;
+pub(crate) const TR_CLEAR_INSTANCES: u8 = 0x28;
+pub(crate) const TR_CLEAR_OVERLAY: u8 = 0x29;
+pub(crate) const TR_RESIDUAL: u8 = 0x2a;
 
 /// Maximum representable absolute coordinate on the wire.
 pub(crate) const MAX_COORD: i64 = 1 << 24;
@@ -218,6 +234,7 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
     let header = read_header(&mut r)?;
     let limits = Limits::for_profile(header.limit_profile)?;
     limits.check_canvas(header.width, header.height)?;
+    limits.check_stream_len(bytes.len() as u64)?;
 
     let mut cur = State::new(Interval::ZERO);
     let mut initial_opt: Option<State> = None;
@@ -363,6 +380,17 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                             }
                             Transition::PatchSparse { points }
                         }
+                        TR_CLEAR_INSTANCES => Transition::ClearInstances,
+                        TR_CLEAR_OVERLAY => Transition::ClearOverlay,
+                        TR_RESIDUAL => {
+                            let block_len = r.pull::<u32>()?;
+                            if u64::from(block_len) > limits.max_residual_bytes {
+                                return Err(VoleError::DimensionTooLarge);
+                            }
+                            let block = r.take_vec(block_len as usize)?;
+                            crate::rans::check_block(&block, limits.max_residual_bytes)?;
+                            Transition::Residual { block }
+                        }
                         TR_COPY_RECT | TR_MOVE_RECT => {
                             let is_copy = t2 == TR_COPY_RECT;
                             let src_x = i64::from(r.pull::<i32>()?);
@@ -404,6 +432,9 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                         _ => return Err(VoleError::NonCanonicalEncoding),
                     };
                     tr.apply(&mut cur)?;
+                    if let Transition::PatchSparse { .. } = tr {
+                        limits.check_overlay_points(cur.overlay_len() as u64)?;
+                    }
                     if let Transition::AdvanceTranslations = tr {
                         // Hostile bound: cumulative per-instance advance work must
                         // stay inside the envelope (checked after the advance, so
@@ -415,6 +446,7 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                     }
                     group.push(tr);
                 }
+                limits.check_interval_distance(intervals.len() as u64)?;
                 intervals.push((Interval(t), group));
             }
             _ => return Err(VoleError::NonCanonicalEncoding),
@@ -579,6 +611,14 @@ fn write_transition(sink: &mut ByteSink, t: &Transition) -> Result<(), VoleError
             sink.push(wpos(*vy))
         }
         Transition::AdvanceTranslations => sink.byte(TR_ADVANCE_TRANSLATIONS),
+        Transition::ClearInstances => sink.byte(TR_CLEAR_INSTANCES),
+        Transition::ClearOverlay => sink.byte(TR_CLEAR_OVERLAY),
+        Transition::Residual { block } => {
+            let n = u32::try_from(block.len()).map_err(|_| VoleError::ArithmeticOverflow)?;
+            sink.byte(TR_RESIDUAL)?;
+            sink.push(n)?;
+            sink.extend(block)
+        }
         Transition::PatchSparse { points } => {
             sink.byte(TR_PATCH_SPARSE)?;
             sink.push(points.len() as u32)?;

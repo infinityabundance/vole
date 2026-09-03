@@ -1,0 +1,12 @@
+flag-76: frames=101 vole_procedural=2076291B vole_raster_only=209438191B raw_all=209433600B procedural_over_raw=100.869 raster_only_over_procedural=100.9 proc_fraction=0.0013 encode_ms_proc=21940 encode_ms_raster_only=495
+flag-76-frame1: family=translation payload=26B interval=26B candidates=152 valid=125
+court=static-desktop-1080p frames=240 canvas=1920x1080 vole=2076798B raw=497664000B exact=true proc_fraction=0.0015 background=0 winner_families=[rawx1 unchangedx239] encode_ms=10602.5
+  accounting: header=24B objects=2073613B checkpoint=22B transitions=3107B residual=0B model=0B integrity=32B total=2076798B
+court=structural-timeline-640x360 frames=89 canvas=640x360 vole=244481B raw=20505600B exact=true proc_fraction=0.0073 background=150 winner_families=[rawx1 unchangedx43 translationx39 exact_refx1 rans_residualx5] encode_ms=5151.7
+  accounting: header=24B objects=230413B checkpoint=22B transitions=1695B residual=12295B model=2560B integrity=32B total=244481B
+court=screen-scroll-96x96 frames=21 canvas=96x96 vole=35347B raw=193536B exact=true proc_fraction=0.0269 background=0 winner_families=[rawx1 copy_residualx20] encode_ms=1244.0
+  accounting: header=24B objects=9229B checkpoint=22B transitions=860B residual=25180B model=10240B integrity=32B total=35347B
+court=noise-64x64 frames=12 canvas=64x64 vole=49738B raw=49152B exact=true proc_fraction=0.0118 background=0 winner_families=[rawx12] encode_ms=236.8
+  accounting: header=24B objects=49308B checkpoint=22B transitions=352B residual=0B model=0B integrity=32B total=49738B
+court=cycling-panels-192x108 frames=60 canvas=192x108 vole=42894B raw=1244160B exact=true proc_fraction=0.0332 background=0 winner_families=[rawx2 unchangedx30 exact_refx28] encode_ms=174.8
+  accounting: header=24B objects=41498B checkpoint=22B transitions=1318B residual=0B model=0B integrity=32B total=42894B

@@ -46,6 +46,15 @@ pub struct Limits {
     pub max_copy_area: u64,
     /// Stream / file bytes the parser refuses to exceed.
     pub max_stream_bytes: u64,
+    /// Maximum distinct persistent sparse-overlay points one state may carry
+    /// (one point per canvas sample at the v1 profile). A hostile stream cannot
+    /// grow the overlay without bound across many sparse patches.
+    pub max_overlay_points: u64,
+    /// Maximum *decoded* byte payload of one per-frame residual block (a
+    /// residual may carry up to a whole-canvas sparse point list, whose point
+    /// triplets are 9 bytes each). The wire block may exceed this only by the
+    /// container envelope slack (see `RESIDUAL_WIRE_SLACK`).
+    pub max_residual_bytes: u64,
 }
 
 impl Default for Limits {
@@ -66,10 +75,17 @@ impl Default for Limits {
             max_checkpoint_distance: 1_000_000,
             max_dependency_depth: 8,
             max_copy_area: 1920 * 1080,
-            max_stream_bytes: 1 << 30, // 1 GiB
+            max_stream_bytes: 1 << 30,       // 1 GiB
+            max_overlay_points: 1920 * 1080, // one persistent point per sample
+            max_residual_bytes: 9 * (1920 * 1080) + RESIDUAL_WIRE_SLACK,
         }
     }
 }
+
+/// Envelope slack a residual wire block may exceed its decoded payload by:
+/// `kind(1) + out_len(8)` container prefix for the RAW branch, or the 512-byte
+/// inline model plus rANS prefix on the coded branch. Kept small and explicit.
+pub(crate) const RESIDUAL_WIRE_SLACK: u64 = 1024;
 
 impl Limits {
     /// Profile selector used by format v1 decoding.
@@ -100,6 +116,38 @@ impl Limits {
     pub fn check_object(&self, bytes: u64) -> Result<(), VoleError> {
         if bytes > self.max_object_bytes {
             return Err(VoleError::DimensionTooLarge);
+        }
+        Ok(())
+    }
+
+    /// Validate a whole stream's byte length before parsing.
+    pub fn check_stream_len(&self, bytes: u64) -> Result<(), VoleError> {
+        if bytes > self.max_stream_bytes {
+            return Err(VoleError::DimensionTooLarge);
+        }
+        Ok(())
+    }
+
+    /// Validate the persistent overlay point count after an overlay batch.
+    pub fn check_overlay_points(&self, points: u64) -> Result<(), VoleError> {
+        if points > self.max_overlay_points {
+            return Err(VoleError::DimensionTooLarge);
+        }
+        Ok(())
+    }
+
+    /// Validate a decoded residual payload length (before point interpretation).
+    pub fn check_residual_bytes(&self, bytes: u64) -> Result<(), VoleError> {
+        if bytes > self.max_residual_bytes {
+            return Err(VoleError::DimensionTooLarge);
+        }
+        Ok(())
+    }
+
+    /// Number of intervals a stream may carry from its checkpoint base.
+    pub fn check_interval_distance(&self, intervals: u64) -> Result<(), VoleError> {
+        if intervals > self.max_checkpoint_distance {
+            return Err(VoleError::CheckpointOutOfEnvelope);
         }
         Ok(())
     }

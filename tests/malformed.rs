@@ -170,3 +170,148 @@ fn hostile_inputs_that_decode_still_materialize_within_limits() {
     b.extend_from_slice(&[0x00, 0x01, 0x02]);
     let _ = decoder::decode_bytes(&b);
 }
+
+// ---------------------------------------------------------------------------
+// Phase G hostile courts: the per-frame residual op (TR_RESIDUAL 0x2a) and the
+// content-replacement clears must bound and fail typed on every hostile form.
+// ---------------------------------------------------------------------------
+
+use vole_video::{
+    format::StreamWriter,
+    object::{Object, ObjectId},
+    rans::{KIND_RANS, KIND_RAW},
+    state::{Instance, InstanceId},
+    transition::Transition,
+};
+
+/// Build a one-frame stream carrying the given residual block.
+fn residual_stream(block: Vec<u8>) -> Result<Vec<u8>, VoleError> {
+    let mut wr = StreamWriter::begin(16, 16);
+    wr = wr.declare_object(ObjectId(1), Object::fill(16, 16, 0)?)?;
+    let inst = Instance {
+        id: InstanceId(1),
+        object_id: ObjectId(1),
+        x: 0,
+        y: 0,
+    };
+    wr = wr.checkpoint_with(&[inst])?;
+    wr = wr.interval(
+        vole_video::time::Interval(1),
+        &[Transition::Residual { block }],
+    )?;
+    wr.finish()
+}
+
+fn raw_block(pts: &[(i32, i32, u8)]) -> Vec<u8> {
+    let mut body = Vec::with_capacity(9 * pts.len());
+    for (x, y, v) in pts {
+        body.extend_from_slice(&x.to_le_bytes());
+        body.extend_from_slice(&y.to_le_bytes());
+        body.push(*v);
+    }
+    let mut block = vec![KIND_RAW];
+    block.extend_from_slice(&(body.len() as u64).to_le_bytes());
+    block.extend_from_slice(&body);
+    block
+}
+
+#[test]
+fn residual_with_unsorted_points_is_typed_error_at_materialize() -> Result<(), VoleError> {
+    // Structurally a valid RAW block, but the point list violates the strict
+    // ascending canonical order. Parsing (structural check) succeeds; applying
+    // the residual at materialization must fail typed, never panic.
+    let block = raw_block(&[(5, 5, 9), (2, 2, 8)]);
+    let bytes = residual_stream(block)?;
+    let parsed = decoder::decode_bytes(&bytes)?; // parse must accept (structure ok)
+    assert_eq!(
+        vole_video::decoder::materialize_all(&parsed).unwrap_err(),
+        VoleError::NonCanonicalEncoding
+    );
+    Ok(())
+}
+
+#[test]
+fn residual_with_out_of_canvas_point_is_typed_error() -> Result<(), VoleError> {
+    let block = raw_block(&[(2, 2, 9), (5000, 2, 8)]);
+    let bytes = residual_stream(block)?;
+    let parsed = decoder::decode_bytes(&bytes)?;
+    assert_eq!(
+        vole_video::decoder::materialize_all(&parsed).unwrap_err(),
+        VoleError::NonCanonicalEncoding
+    );
+    Ok(())
+}
+
+#[test]
+fn residual_length_bomb_rejected_at_parse_before_allocation() -> Result<(), VoleError> {
+    // A hostile block declaring an enormous decoded length must fail typed at
+    // parse time (structural check), before any allocation or decode.
+    let mut block = vec![KIND_RAW];
+    block.extend_from_slice(&(1u64 << 40).to_le_bytes());
+    let bytes = residual_stream(block)?;
+    assert_eq!(
+        decoder::decode_bytes(&bytes).unwrap_err(),
+        VoleError::DimensionTooLarge
+    );
+    Ok(())
+}
+
+#[test]
+fn truncated_residual_block_is_typed_error() -> Result<(), VoleError> {
+    // A RANS-kind block cut off mid-model fails structural validation.
+    let mut block = vec![KIND_RANS];
+    block.extend_from_slice(&(18u64).to_le_bytes());
+    block.extend_from_slice(&[0u8; 300]); // less than the 512-byte model
+    let bytes = residual_stream(block)?;
+    assert_eq!(
+        decoder::decode_bytes(&bytes).unwrap_err(),
+        VoleError::Truncated
+    );
+    Ok(())
+}
+
+#[test]
+fn malformed_block_kind_is_typed_error() -> Result<(), VoleError> {
+    let mut block = vec![0xEEu8]; // unknown kind byte
+    block.extend_from_slice(&0u64.to_le_bytes());
+    let bytes = residual_stream(block)?;
+    assert_eq!(
+        decoder::decode_bytes(&bytes).unwrap_err(),
+        VoleError::NonCanonicalEncoding
+    );
+    Ok(())
+}
+
+#[test]
+fn clear_ops_roundtrip_and_free_ids_for_reuse() -> Result<(), VoleError> {
+    // ClearInstances + ClearOverlay then re-create with the same id must be a
+    // canonical, decodable replacement sequence (used by every reset).
+    let mut wr = StreamWriter::begin(16, 16);
+    wr = wr.declare_object(ObjectId(1), Object::fill(16, 16, 0)?)?;
+    wr = wr.declare_object(ObjectId(2), Object::fill(16, 16, 255)?)?;
+    let inst = Instance {
+        id: InstanceId(1),
+        object_id: ObjectId(1),
+        x: 0,
+        y: 0,
+    };
+    wr = wr.checkpoint_with(&[inst])?;
+    let replace = vec![
+        Transition::ClearInstances,
+        Transition::ClearOverlay,
+        Transition::CreateInstance {
+            id: InstanceId(1), // same id, freed by the clear
+            object: ObjectId(2),
+            x: 0,
+            y: 0,
+        },
+    ];
+    wr = wr.interval(vole_video::time::Interval(1), &replace)?;
+    let bytes = wr.finish()?;
+    let parsed = decoder::decode_bytes(&bytes)?;
+    let frames = vole_video::decoder::materialize_all(&parsed)?;
+    assert_eq!(frames.len(), 2);
+    assert_eq!(frames[0].get(3, 3), 0);
+    assert_eq!(frames[1].get(3, 3), 255);
+    Ok(())
+}

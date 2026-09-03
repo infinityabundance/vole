@@ -21,7 +21,10 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | COPY_RECT / MOVE_RECT (prior-frame snapshot compositor) | ADOPTED | Phase D: wrap-scroll court oracle-exact; hostile pass (`tests/phase_d.rs`) |
 | Integer translation as persistent state (per-instance `(vx,vy)` + advance) | ADOPTED | Phase E: 101 exact frames, 1 505 B vs 2 692 B per-frame `SetPosition`; static + noise controls (`tests/phase_e.rs`) |
 | rANS / entropy floor (owned byte rANS, RAW fallback policy) | ADOPTED | Phase F: byte parity vs `ryg-rans-rs` oracle; skew 59×, uniform→RAW (`tests/phase_f.rs`) |
-| Trajectory collapse | PROPOSED | pending |
+| Content replacement (clear instances / clear overlay) | ADOPTED | Phase G: tags 0x28/0x29; full-frame replacement semantics (`tests/malformed.rs`) |
+| Per-frame residual algebra (one-shot `⊕_ρ`, RAW or rANS block) | ADOPTED | Phase G: tag 0x2a; hostile courts + RANS_RESIDUAL winners on skewed deltas (`tests/phase_g.rs`) |
+| Inverse-proceduralization encoder (exhaustive raster→VOLE) | ADOPTED | Phase G: exhaustive per-frame court, winner == min over families (regret 0), end-to-end decode-verified; noise → RAW +1.2% (`tests/phase_g.rs`, `examples/inverse_proof.rs`) |
+| Trajectory collapse | PROPOSED | pending (measured temporal gap; Phase I/O) |
 | Palettes | PROPOSED | pending |
 | Affine / global state | PROPOSED | pending |
 | Transform residual | PROPOSED | pending |
@@ -29,7 +32,6 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Parametric dynamics | PROPOSED | pending |
 | Partial materialization (tile/rect) | PROPOSED | pending |
 | Resolution-independent procedural state | PROPOSED | pending |
-| Inverse-proceduralization encoder | PROPOSED | pending |
 | DSFB-governed search | PROPOSED (non-normative) | pending courts |
 | EntropyFS persistence / cross-video sharing | PROPOSED (optional substrate) | pending |
 | Representation re-optimization (`vole optimize`) | PROPOSED | pending |

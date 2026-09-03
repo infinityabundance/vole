@@ -28,6 +28,16 @@ tags (`docs/format-v1.md`):
 | `CreateInstance` (0x21) | add an instance at a paint position | an object appearing |
 | `SetPosition` (0x22) | move an instance to an absolute `(x, y)` | a moving box: `x += 2` |
 
+## Later-phase operators (v1 grammar continues to evolve per phase)
+
+| Phase | Transition (tag) | Effect |
+|---|---|---|
+| C | `PatchSparse` (0x23) | set persistent overlay points above all instances (strict-sorted) |
+| D | `CopyRect`/`MoveRect` (0x24/0x25) | canvas ops copying a rectangle from the immediately previous decoded frame onto the frame base |
+| E | `SetVelocity` (0x26) + `AdvanceTranslations` (0x27) | per-instance persistent integer translation applied once per advance |
+| G | `ClearInstances` (0x28) / `ClearOverlay` (0x29) | full-content replacement: drop every live instance / every overlay point |
+| G | `Residual` (0x2a) | per-frame residual block (Phase-F coded payload) applied to the canvas in op order — the `⊕_ρ` residual algebra, one-shot, stateless |
+
 Because Phase A declares all objects before the single checkpoint, interval
 groups in v1 contain only `CreateInstance`/`SetPosition`. Later phases broaden
 the operator language; the *replay* architecture (`src/format.rs`,

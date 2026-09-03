@@ -10,6 +10,8 @@ use crate::{
     format::{parse_stream, ParsedStream},
     materialize,
     pixel::Canvas,
+    state::State,
+    Limits,
 };
 
 use crate::transition::Transition;
@@ -17,6 +19,46 @@ use crate::transition::Transition;
 /// Parse a standalone `.vole` stream.
 pub fn decode_bytes(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
     parse_stream(bytes)
+}
+
+/// Advance one interval: apply every state transition to `state` in listed
+/// order, then materialize the canonical full frame and apply the interval's
+/// canvas ops (COPY_RECT/MOVE_RECT reading from `prev`, the immediately
+/// previous decoded frame, and the per-frame residual op) in listed order.
+/// Returns the finished frame. This is the single normative replay step shared
+/// by [`materialize_all`] and the Phase-G inverse encoder's simulation, so the
+/// encoder's committed frames are produced by exactly the code the decoder
+/// runs.
+pub(crate) fn step_frame(
+    state: &mut State,
+    prev: &Canvas,
+    trs: &[Transition],
+    width: u32,
+    height: u32,
+    limits: &Limits,
+) -> Result<Canvas, VoleError> {
+    let mut ops = Vec::new();
+    for tr in trs {
+        if is_canvas_op(tr) {
+            ops.push(tr);
+        } else {
+            tr.apply(state)?;
+        }
+    }
+    let mut canvas = materialize::materialize_full(state, width, height, limits)?;
+    for op in ops {
+        materialize::apply_canvas_op(&mut canvas, prev, op, limits)?;
+    }
+    Ok(canvas)
+}
+
+/// Whether a transition is a frame-compositor (canvas) op rather than a state
+/// mutation.
+fn is_canvas_op(tr: &Transition) -> bool {
+    matches!(
+        tr,
+        Transition::CopyRect { .. } | Transition::MoveRect { .. } | Transition::Residual { .. }
+    )
 }
 
 /// Replay the checkpoint and every interval, returning materialized full
@@ -30,25 +72,9 @@ pub fn materialize_all(parsed: &ParsedStream) -> Result<Vec<Canvas>, VoleError> 
     let mut out = Vec::with_capacity(parsed.frame_count() as usize);
     let first = materialize::materialize_full(&state, w, h, limits)?;
     out.push(first);
-    // `prev` is the previous interval's final frame; COPY_RECT/MOVE_RECT compose
-    // from it before we enqueue the finished frame.
     for (_, trs) in parsed.intervals() {
-        let mut copies = Vec::new();
-        for tr in trs {
-            if matches!(
-                tr,
-                Transition::CopyRect { .. } | Transition::MoveRect { .. }
-            ) {
-                copies.push(tr);
-            } else {
-                tr.apply(&mut state)?;
-            }
-        }
-        let mut canvas = materialize::materialize_full(&state, w, h, limits)?;
-        for op in copies {
-            let prior = out.last().ok_or(VoleError::Truncated)?;
-            materialize::apply_copy(&mut canvas, prior, op)?;
-        }
+        let prior = out.last().expect("previous frame exists").clone();
+        let canvas = step_frame(&mut state, &prior, trs, w, h, limits)?;
         out.push(canvas);
     }
     Ok(out)

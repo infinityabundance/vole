@@ -68,13 +68,31 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
-## CLI (beginning)
+## CLI (Phase A–G surface)
 
 ```
 vole demo moving-rect [out.vole]
+vole encode --width W --height H [--frames N] in.raw out.vole
 vole decode <in.vole> [outdir]
 vole verify <in.vole>
 vole bench
+```
+
+`vole encode` is the Phase-G raster-origin path: `in.raw` is a concatenated
+Gray8 sequence; the exhaustive inverse proceduralizer per frame evaluates
+RAW/FILL/UNCHANGED/EXACT_OBJECT_REF/SPARSE/COPY_RECT/TRANSLATION/
+RANS_RESIDUAL candidates, validates every candidate byte-exactly, emits the
+complete-cost winner, and decode-verifies the stream end-to-end before
+writing it.
+
+Example (sealed Phase-G evidence, see `docs/phase-g.md`):
+
+```
+# 101 frames of a box gliding over a light background:
+vole encode --width 1920 --height 1080 --frames 101 box.raw box.vole
+#   -> 2,076,291 B (.vole) vs 209,438,191 B (VOLE raster-only) vs
+#      209,433,600 B raw: frame 0 = one full-raster declaration, then
+#      every interval is a 26 B integer-translation state evolution.
 ```
 
 ## Status

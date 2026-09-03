@@ -58,11 +58,14 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
 ```
 
 * `t` must be > the previous interval and > 0 ⇒ else `NonConsecutiveInterval`.
+* The interval count from the checkpoint is bounded by
+  `Limits.max_checkpoint_distance` (`CheckpointOutOfEnvelope`).
 * `m` ≤ `max_transitions_per_interval`.
 * Transitions:
   * `0x21 iid:u32 oid:u32 x:i32 y:i32` — create instance.
   * `0x22 iid:u32 x:i32 y:i32` — set instance position (absolute).
-  * `0x23 n:u32 (x:i32 y:i32 v:u8)^n` — sparse overlay patch (sorted).
+  * `0x23 n:u32 (x:i32 y:i32 v:u8)^n` — sparse overlay patch (sorted;
+    cumulative overlay points bounded by `max_overlay_points`).
   * `0x24 sx:i32 sy:i32 w:u32 h:u32 dx:i32 dy:i32` — COPY_RECT from the prior
     decoded frame (Phase D machinery).
   * `0x25 sx:i32 sy:i32 w:u32 h:u32 dx:i32 dy:i32` — MOVE_RECT (Phase D).
@@ -70,10 +73,30 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
     instance (Phase E).
   * `0x27` — advance every active translation once: `position += (vx, vy)`
     (Phase E).
+  * `0x28` — clear every live instance; instance ids are freed for reuse
+    (Phase G content replacement).
+  * `0x29` — clear every persistent overlay point (Phase G).
+  * `0x2a len:u32 block` — per-frame residual (Phase G). `block` is a
+    Phase-F self-describing payload (`rans::encode_block`: kind u8 + out_len
+    u64 + inline model? + payload) whose decoded bytes are a canonical,
+    strict-sorted, in-canvas sparse point list `(x:i32 y:i32 v:u8)*` (9 bytes
+    per point). `len ≤ max_residual_bytes`; the block is structurally
+    validated at parse time and decoded only when the frame it appears in is
+    materialized. The residual is a **canvas op** applied in listed order
+    after any COPY_RECT/MOVE_RECT: it is one-shot for its frame and never
+    mutates persistent state.
 * `|x|,|y|,|vx|,|vy| ≤ 2^24`; for copy ops `w,h ≠ 0` and `w*h ≤ max_copy_area`
   ⇒ else a typed error.
 * Cumulative translation-advance work (`moving_count` summed over every
   `0x27`) is capped by `Limits.max_transition_work` at parse and encode time.
+* The whole file is bounded by `Limits.max_stream_bytes`.
+
+State transitions (create/set/velocity/advance/clear/patch) apply in listed
+order to procedural state; canvas ops (`0x24`, `0x25`, `0x2a`) do not touch
+state — a replay step applies every state transition of the interval first
+(in listed order), then materializes the canonical frame, then applies the
+interval's canvas ops in listed order (COPY/MOVE read their source from the
+immediately previous decoded frame; the residual op is self-contained).
 
 ### Integrity
 

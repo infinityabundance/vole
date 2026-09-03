@@ -399,6 +399,51 @@ pub fn decode_block(bytes: &[u8], max_out: u64) -> Result<Vec<u8>, VoleError> {
     }
 }
 
+/// Structural validation of a block **without decoding it** (used at parse
+/// time, where the parser must bound and skip the op but must not force an
+/// entropy decode of a frame the caller may never materialize).
+///
+/// Mirrors the length/kind invariants of [`decode_block`]: valid kind byte;
+/// declared `out_len` within `max_out`; RAW branch must be exactly
+/// `9 + out_len` bytes; RANS branch must carry at least the 512-byte inline
+/// model. Deeper corruption (entropy overread, invalid model, unsorted
+/// residual points, …) surfaces as a typed error when the op is applied at
+/// materialization time.
+pub fn check_block(bytes: &[u8], max_out: u64) -> Result<(), VoleError> {
+    if bytes.len() < 9 {
+        return Err(VoleError::Truncated);
+    }
+    if BlockKind::from_byte(bytes[0]).is_none() {
+        return Err(VoleError::NonCanonicalEncoding);
+    }
+    let mut len_bytes = [0u8; 8];
+    len_bytes.copy_from_slice(&bytes[1..9]);
+    let len = u64::from_le_bytes(len_bytes);
+    if len > max_out {
+        return Err(VoleError::DimensionTooLarge);
+    }
+    match BlockKind::from_byte(bytes[0]).expect("checked above") {
+        BlockKind::Raw => {
+            let need = 9usize
+                .checked_add(usize::try_from(len).map_err(|_| VoleError::ArithmeticOverflow)?)
+                .ok_or(VoleError::ArithmeticOverflow)?;
+            if bytes.len() < need {
+                return Err(VoleError::Truncated);
+            }
+            if bytes.len() != need {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            Ok(())
+        }
+        BlockKind::Rans => {
+            if bytes.len() <= 9 + MODEL_SERIALIZED {
+                return Err(VoleError::Truncated);
+            }
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

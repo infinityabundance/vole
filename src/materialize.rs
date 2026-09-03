@@ -88,6 +88,64 @@ pub(crate) fn apply_copy(
     rect_copy(dst, src, sx, sy, width, height, dx, dy);
     Ok(())
 }
+
+/// Decode and apply a per-frame residual block onto `dst` (Phase G). The
+/// decoded payload must be a canonical, strict-sorted, in-canvas sparse point
+/// list; any deviation is a typed error. This is the `⊕_ρ` residual algebra
+/// applied to the materialized base: it is authoritative for the frame and has
+/// no persistent-state side effect.
+pub(crate) fn apply_residual(
+    dst: &mut Canvas,
+    block: &[u8],
+    limits: &Limits,
+) -> Result<(), VoleError> {
+    let payload = crate::rans::decode_block(block, limits.max_residual_bytes)?;
+    if payload.len() % 9 != 0 {
+        return Err(VoleError::NonCanonicalEncoding);
+    }
+    let cw = i64::from(dst.width());
+    let ch = i64::from(dst.height());
+    let mut prev: Option<(i64, i64)> = None;
+    for p in payload.as_chunks::<9>().0 {
+        let x = i64::from(i32::from_le_bytes([p[0], p[1], p[2], p[3]]));
+        let y = i64::from(i32::from_le_bytes([p[4], p[5], p[6], p[7]]));
+        let v = p[8];
+        if x < 0 || y < 0 || x >= cw || y >= ch {
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+        let key = (x, y);
+        if prev.is_some_and(|q| key <= q) {
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+        prev = Some(key);
+        dst.set(
+            u32::try_from(x).expect("bounded above by width"),
+            u32::try_from(y).expect("bounded above by height"),
+            v,
+        );
+    }
+    Ok(())
+}
+
+/// Apply one canvas op (copy/move/residual) to the current frame canvas.
+/// Copy ops read their source from `prev` (the immediately previous decoded
+/// frame); the residual op is self-contained. Ops apply in listed order.
+pub(crate) fn apply_canvas_op(
+    dst: &mut Canvas,
+    prev: &Canvas,
+    tr: &crate::transition::Transition,
+    limits: &Limits,
+) -> Result<(), VoleError> {
+    match tr {
+        crate::transition::Transition::CopyRect { .. }
+        | crate::transition::Transition::MoveRect { .. } => apply_copy(dst, prev, tr),
+        crate::transition::Transition::Residual { block } => apply_residual(dst, block, limits),
+        other => {
+            let _ = other;
+            Err(VoleError::NonCanonicalEncoding)
+        }
+    }
+}
 /// Materialize the canonical full frame of `state`.
 ///
 /// # Semantics (normative)

@@ -1,0 +1,6 @@
+{
+  "commit": "741e6fcbd0a3d9aec98ec20e4790d0112645f8fe",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "platform": "Linux-vanir-7.2.2-1-cachyos-x86_64",
+  "command": "cargo run --release --example inverse_proof"
+}

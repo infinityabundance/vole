@@ -67,6 +67,20 @@ pub enum Transition {
         dst_x: i64,
         dst_y: i64,
     },
+    /// Remove every live instance (Phase G full-content replacement). Instance
+    /// ids are freed for reuse; objects, background, overlay untouched.
+    ClearInstances,
+    /// Remove every persistent overlay point (Phase G).
+    ClearOverlay,
+    /// Per-frame residual information (Phase G). The payload is a self-
+    /// describing Phase-F block (`rans::encode_block`) whose decoded bytes are
+    /// a canonical strict-sorted sparse point list `(x:i32, y:i32, v:u8)`.
+    /// This is a **canvas op** (applied after materialization, in listed op
+    /// order after any COPY_RECT/MOVE_RECT); it is one-shot for the frame it
+    /// appears in and does not mutate persistent state — the residual algebra
+    /// `F = M(state) ⊕_ρ R` closes the gap between the materialized base and
+    /// the target observation without a persistent side effect.
+    Residual { block: Vec<u8> },
 }
 
 impl Transition {
@@ -98,6 +112,16 @@ impl Transition {
             // and they are only interpreted by the sequential replayer in
             // src/decoder.rs / src/materialize::compositor.
             Transition::CopyRect { .. } | Transition::MoveRect { .. } => Ok(()),
+            // Canvas ops (see module docs): no persistent-state effect.
+            Transition::Residual { .. } => Ok(()),
+            Transition::ClearInstances => {
+                state.clear_instances();
+                Ok(())
+            }
+            Transition::ClearOverlay => {
+                state.clear_overlay();
+                Ok(())
+            }
         }
     }
 
@@ -112,6 +136,9 @@ impl Transition {
             Transition::PatchSparse { .. } => "patch_sparse",
             Transition::CopyRect { .. } => "copy_rect",
             Transition::MoveRect { .. } => "move_rect",
+            Transition::ClearInstances => "clear_instances",
+            Transition::ClearOverlay => "clear_overlay",
+            Transition::Residual { .. } => "residual",
         }
     }
 }

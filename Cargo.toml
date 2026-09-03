@@ -9,6 +9,12 @@ repository = "https://github.com/infinityabundance/vole"
 readme = "README.md"
 keywords = ["video", "procedural", "state", "materialization", "compression"]
 categories = ["multimedia::video", "compression"]
+autobins = false
+
+# The one CLI binary is `vole`.
+[[bin]]
+name = "vole"
+path = "src/main.rs"
 
 # VOLE is one, self-contained, native Rust crate. It owns its normative wire
 # format and materializer and violates no-unsafe for now. It does NOT depend on

@@ -1,0 +1,66 @@
+{
+  "phase": "G",
+  "semantics": "exhaustive inverse proceduralization: per frame evaluate RAW/FILL/UNCHANGED/EXACT_REF/SPARSE/COPY_RECT/TRANSLATION/RANS_RESIDUAL (+copy-residual & prev-diff composites); every candidate validated byte-exact through the normative materializer path; winner = min complete persisted bytes; stream always decode-verified end-to-end",
+  "flag_76": {
+    "canvas": "1920x1080",
+    "frames": 101,
+    "content": "one 200x100 box gliding +2px x per interval over uniform 90",
+    "vole_procedural_bytes": 2076291,
+    "vole_raster_only_bytes": 209438191,
+    "raw_all_bytes": 209433600,
+    "procedural_over_raw_x": 100.869,
+    "raster_only_over_procedural_x": 100.9,
+    "frame1_winner_family": "translation",
+    "frame1_payload_bytes": 26,
+    "frame1_candidates_evaluated": 152,
+    "frame1_candidates_valid": 125,
+    "sustained_marginal_bytes_per_frame": 26,
+    "note": "whole-frame granularity: frame 0 pays one full-raster object declaration (2073613 B); every following interval is a 26 B state evolution (SetPosition). Region extraction (Phase K) and native ingest (Phase Q) target the frame-0 tax."
+  },
+  "static_desktop_1080p": {
+    "frames": 240,
+    "vole_bytes": 2076798,
+    "raw_bytes": 497664000,
+    "winner_families": "rawx1 unchangedx239",
+    "unchanged_interval_bytes": 13,
+    "exact": true
+  },
+  "structural_timeline_640x360": {
+    "frames": 89,
+    "vole_bytes": 244481,
+    "raw_bytes": 20505600,
+    "background": 150,
+    "winner_families": "rawx1 unchangedx43 translationx39 exact_refx1 rans_residualx5",
+    "accounting": {
+      "objects": 230413,
+      "transitions": 1695,
+      "residual": 12295,
+      "model": 2560
+    },
+    "exact": true
+  },
+  "screen_scroll_96x96": {
+    "frames": 21,
+    "vole_bytes": 35347,
+    "raw_bytes": 193536,
+    "winner_families": "rawx1 copy_residualx20",
+    "exact": true
+  },
+  "noise_negative_control_64x64": {
+    "frames": 12,
+    "vole_bytes": 49738,
+    "raw_bytes": 49152,
+    "overhead_x": 1.0119,
+    "winner_families": "rawx12",
+    "exact": true
+  },
+  "cycling_panels_192x108": {
+    "frames": 60,
+    "vole_bytes": 42894,
+    "raw_bytes": 1244160,
+    "winner_families": "rawx2 unchangedx30 exact_refx28",
+    "exact": true
+  },
+  "oracle_regret": 0,
+  "note": "regret-0 exhaustive decisions asserted per frame in tests/phase_g.rs (winner == min over every evaluated family); hostile residual courts in tests/malformed.rs; large-canvas scroll families run in the documented row-hash-prefiltered mode (accepted candidates byte-verified)"
+}

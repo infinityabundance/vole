@@ -185,6 +185,20 @@ impl State {
         Ok(())
     }
 
+    /// Remove every live instance. Paint order is cleared and instance ids are
+    /// freed for reuse (Phase G: full-content replacement). Objects stay
+    /// declared; the background and overlay are untouched.
+    pub fn clear_instances(&mut self) {
+        self.instances.clear();
+        self.velocities.clear();
+    }
+
+    /// Remove every persistent overlay point (Phase G: content replacement and
+    /// stale-overlay correction). Instances and velocities are untouched.
+    pub fn clear_overlay(&mut self) {
+        self.overlay.clear();
+    }
+
     /// Set a persistent integer translation `(vx, vy)` on an instance. The
     /// translation is applied once per [`State::advance_translations`], so the
     /// instance's position follows `position(t+1) = position(t) + (vx, vy)`
