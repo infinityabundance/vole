@@ -1,5 +1,6 @@
 /target
-**/frame-*.gray
-proof/frames/
-vole-frames/
+/**/frame-*.gray
+/proof/frames/
+/vole-frames/
 *.raw
+/research/
