@@ -259,3 +259,120 @@ impl StaticSceneCourt {
         Ok((bytes.len() as u64, flows, raw))
     }
 }
+
+/// Phase-C sparse-mutation story: a persistent object with a small blinking
+/// overlay pixel whose value flips each interval. Verifies sparse overlay
+/// points materialize exactly and are cheap to represent (no full frame re-
+/// store).
+pub struct BlinkCourt {
+    /// Canvas dimensions.
+    pub width: u32,
+    pub height: u32,
+    /// Object id/instance id.
+    pub object_id: u32,
+    pub instance_id: u32,
+    /// Overlay coordinate that blinks every interval.
+    pub px: i64,
+    pub py: i64,
+    /// Number of intervals (frames == intervals + 1).
+    pub intervals: u64,
+}
+
+impl Default for BlinkCourt {
+    fn default() -> Self {
+        BlinkCourt {
+            width: 640,
+            height: 360,
+            object_id: 1,
+            instance_id: 1,
+            px: 50,
+            py: 20,
+            intervals: 64,
+        }
+    }
+}
+
+impl BlinkCourt {
+    /// VOLE bytes (sparse overlay toggles each interval).
+    pub fn vole(&self) -> Result<Vec<u8>, VoleError> {
+        let obj = Object::fill(400, 300, 128)?;
+        let inst = Instance {
+            id: InstanceId(self.instance_id),
+            object_id: ObjectId(self.object_id),
+            x: 0,
+            y: 0,
+        };
+        let mut timeline = Vec::with_capacity(self.intervals as usize);
+        for k in 1..=self.intervals {
+            let value: u8 = if (k % 2) == 1 { 0 } else { 255 };
+            timeline.push((
+                k,
+                vec![Transition::PatchSparse {
+                    points: vec![(self.px, self.py, value)],
+                }],
+            ));
+        }
+        encoder::encode_stream(
+            self.width,
+            self.height,
+            0,
+            &[(self.object_id, obj)],
+            &[inst],
+            &timeline,
+        )
+    }
+
+    /// Independent reference frames (patches turn the pixel on/off).
+    pub fn reference_raw(&self) -> Vec<u8> {
+        let obj = Object::fill(400, 300, 128).expect("fill");
+        let raster = obj.expand();
+        let w = self.width as usize;
+        let mut raw = Vec::new();
+        for f in 0..=self.intervals {
+            // frame f: object drawn; then (if f>0) overlay value at parity of f.
+            let mut fram = vec![0u8; w * self.height as usize];
+            self.blit(&mut fram, &raster, 400, 300, 0, 0);
+            if f > 0 {
+                let v: u8 = if (f % 2) == 0 { 255 } else { 0 };
+                self.setpix(&mut fram, self.px, self.py, v, w);
+            }
+            raw.extend(fram);
+        }
+        raw
+    }
+
+    fn blit(&self, fram: &mut [u8], src: &[u8], sw: u32, sh: u32, dx: i64, dy: i64) {
+        let w = self.width as i64;
+        let h = self.height as i64;
+        for sy in 0..sh as i64 {
+            for sx in 0..sw as i64 {
+                let cx = dx + sx;
+                let cy = dy + sy;
+                if cx >= 0 && cx < w && cy >= 0 && cy < h {
+                    fram[cy as usize * (self.width as usize) + cx as usize] =
+                        src[(sy as usize) * (sw as usize) + sx as usize];
+                }
+            }
+        }
+    }
+
+    fn setpix(&self, fram: &mut [u8], x: i64, y: i64, v: u8, w: usize) {
+        if x >= 0 && y >= 0 && x < i64::from(self.width) && y < i64::from(self.height) {
+            fram[y as usize * w + x as usize] = v;
+        }
+    }
+
+    /// Materialize and byte-exact verify against the reference.
+    pub fn materialize_and_verify(&self) -> Result<Vec<Canvas>, VoleError> {
+        let parsed = decoder::decode_bytes(&self.vole()?)?;
+        let canvas = decoder::materialize_all(&parsed)?;
+        let mut got = Vec::new();
+        for c in &canvas {
+            got.extend_from_slice(c.as_slice());
+        }
+        if got != self.reference_raw() {
+            return Err(VoleError::ApiConstraint("blink diverged"));
+        }
+        Ok(canvas)
+    }
+}

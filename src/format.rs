@@ -52,6 +52,7 @@ pub(crate) const TAG_INTERVAL: u8 = 0x04;
 // Transition tags.
 pub(crate) const TR_CREATE_INSTANCE: u8 = 0x21;
 pub(crate) const TR_SET_POSITION: u8 = 0x22;
+pub(crate) const TR_PATCH_SPARSE: u8 = 0x23;
 
 /// Maximum representable absolute coordinate on the wire.
 pub(crate) const MAX_COORD: i64 = 1 << 24;
@@ -326,6 +327,28 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                             coord_guard(y)?;
                             Transition::SetPosition { id, x, y }
                         }
+                        TR_PATCH_SPARSE => {
+                            let m = r.pull::<u32>()?;
+                            if m as u64 > limits.max_canvas_bytes {
+                                return Err(VoleError::NonCanonicalEncoding);
+                            }
+                            let mut points = Vec::with_capacity(m as usize);
+                            let mut prev: Option<(i64, i64)> = None;
+                            for _ in 0..m {
+                                let x = i64::from(r.pull::<i32>()?);
+                                let y = i64::from(r.pull::<i32>()?);
+                                let v = r.u8()?;
+                                coord_guard(x)?;
+                                coord_guard(y)?;
+                                let key = (x, y);
+                                if prev.as_ref().is_some_and(|p| key <= *p) {
+                                    return Err(VoleError::NonCanonicalEncoding);
+                                }
+                                prev = Some(key);
+                                points.push((x, y, v));
+                            }
+                            Transition::PatchSparse { points }
+                        }
                         _ => return Err(VoleError::NonCanonicalEncoding),
                     };
                     tr.apply(&mut cur)?;
@@ -487,6 +510,16 @@ fn write_transition(sink: &mut ByteSink, t: &Transition) -> Result<(), VoleError
             sink.push(id.0)?;
             sink.push(wpos(*x))?;
             sink.push(wpos(*y))
+        }
+        Transition::PatchSparse { points } => {
+            sink.byte(TR_PATCH_SPARSE)?;
+            sink.push(points.len() as u32)?;
+            for (x, y, v) in points {
+                sink.push(wpos(*x))?;
+                sink.push(wpos(*y))?;
+                sink.byte(*v)?;
+            }
+            Ok(())
         }
         // These variants only appear in files in later v-formats; writing them
         // in a v1 file is rejected to keep the v1 grammar closed.

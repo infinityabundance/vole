@@ -1,0 +1,10 @@
+{
+  "frames": 65,
+  "stream_bytes": 1820,
+  "raw_all_bytes": 14976000,
+  "raw_over_stream": 8229.0,
+  "frame0_blake3": "a452e3f323910e1065a024119fb6a83bc5f3f4520f1a2b04ad96eebc3d070dc7",
+  "last_frame_blake3": "f0caba778a5f4c691a6da92c7a999dd09ce7215b5e5e6d14a0a847a4662fa680",
+  "court": "640x360 blink",
+  "independent_reference": true
+}

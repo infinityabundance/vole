@@ -44,6 +44,15 @@ pub fn materialize_full(
         }
         paint_instance(&mut canvas, state, inst);
     }
+    // Sparse overlay: authoritative pixels painted above all instances, in
+    // canonical coordinate order. Out-of-canvas coordinates are dropped.
+    let (cw, ch) = (i64::from(width), i64::from(height));
+    for (x, y, v) in state.overlay_iter() {
+        if x < 0 || y < 0 || x >= cw || y >= ch {
+            continue;
+        }
+        canvas.set(u32::try_from(x).unwrap(), u32::try_from(y).unwrap(), v);
+    }
     Ok(canvas)
 }
 

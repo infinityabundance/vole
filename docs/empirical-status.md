@@ -17,7 +17,7 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Exact content identity (BLAKE3 immutable objects) | ADOPTED | Phase B `content_id_of` |
 | Same-content exact reuse (dedup registry counts) | ADOPTED | Phase B court |
 | Unchanged-state lane (zero-transition intervals) | ADOPTED | Phase B static court: 13.0 B/frame amortized |
-| Sparse patch | PROPOSED | pending |
+| Sparse mutation (persistent overlay; strict-sorted patch) | ADOPTED | Phase C blink court: 1 820 B vs 14.98 MB (8 229×) |
 | COPY_RECT / MOVE_RECT | PROPOSED | pending |
 | Integer translation as persistent state | PARTIAL (Phase-A SET_POSITION) | court; trajectory form PROPOSED |
 | rANS / entropy floor | PROPOSED | pending |

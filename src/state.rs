@@ -45,6 +45,10 @@ pub struct State {
     objects: BTreeMap<ObjectId, Object>,
     /// Live instances in paint order.
     instances: Vec<Instance>,
+    /// Sparse persistent overlay painted above all instances (Phase C: sparse
+    /// mutation). Keyed by canvas coordinate; a set pixel persists until
+    /// overwritten.
+    overlay: BTreeMap<(i64, i64), u8>,
     /// Which interval this state snapshot was produced for (diagnostics and
     /// checkpoint anchoring; a fresh state is interval ZERO).
     interval: Interval,
@@ -56,6 +60,7 @@ impl Default for State {
             background: 0,
             objects: BTreeMap::new(),
             instances: Vec::new(),
+            overlay: BTreeMap::new(),
             interval: Interval::ZERO,
         }
     }
@@ -172,5 +177,41 @@ impl State {
         inst.x = x;
         inst.y = y;
         Ok(())
+    }
+
+    /// Define a sparse-overlay point. Points persist until overwritten with a
+    /// new value (blinking/strobe courts overwrite the same coordinates).
+    /// Overlay pixels are painted above every instance.
+    pub fn set_overlay(&mut self, x: i64, y: i64, value: u8) {
+        self.overlay.insert((x, y), value);
+    }
+
+    /// Push a batch of overlay points in canonical (lexicographically sorted)
+    /// order, validating that they are sorted before application (hostile
+    /// requirement: non-canonical order is a typed error, not accepted).
+    pub fn overlay_batch(&mut self, pts: &[(i64, i64, u8)]) -> Result<(), VoleError> {
+        let mut prev: Option<(i64, i64)> = None;
+        for (x, y, v) in pts {
+            let key = (*x, *y);
+            if let Some(p) = prev {
+                if key <= p {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+            }
+            prev = Some(key);
+            self.set_overlay(*x, *y, *v);
+        }
+        Ok(())
+    }
+
+    /// Number of live overlay points.
+    pub fn overlay_len(&self) -> usize {
+        self.overlay.len()
+    }
+
+    /// Iterate overlay points in canonical coordinate order (used by the
+    /// materializer as the final paint pass).
+    pub fn overlay_iter(&self) -> impl Iterator<Item = (i64, i64, u8)> + '_ {
+        self.overlay.iter().map(|((x, y), v)| (*x, *y, *v))
     }
 }

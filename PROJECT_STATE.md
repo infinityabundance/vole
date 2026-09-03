@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase B sealed (next commit)
-**Current phase:** B (persistent object identity) — sealed; next C.
+**Current head:** Phase C sealed (see git log)
+**Current phase:** C (sparse mutation) — sealed; next D.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
 
 ## Completed (measured, courted, sealed)
@@ -14,7 +14,10 @@ transitions; BLAKE3 integrity trailer; typed `Limits`; hostile-input tests.
 
 Phase B: exact content identity (BLAKE3 over canonical object record), a
 content→id reuse registry, and the unchanged-state lane; static court confirms
-10 001 identical views at ~13.0 B/frame (raw would be 20.7 GB).*
+10 001 identical views at ~13.0 B/frame (raw would be 20.7 GB).
+
+Phase C: persistent sparse overlay + strict-sorted SPARSE patch; blink court
+materializes 65 exact frames from a 1 820 B stream (raw 14.98 MB).*
 
 Courts: moving-rect 1920×1080, 101 frames — VOLE stores 2,692 B (state +
 transitions); raw full-frame sequence would be 209,433,600 B. Materialized
@@ -24,9 +27,8 @@ integrity gates asserted typed. Court/Hostile tests, `cargo fmt/check/clippy
 
 ## In progress
 
-Phase C — sparse mutation & 2D copy/move once gated (order preserved).
-Persistent content identity next gains formal reuse across streams (Phase P,
-EntropyFS).
+Phase D — 2D copy/move (COPY_RECT/MOVE_RECT) with explicit overlap/clipping
+and bounded dependency semantics; then the native entropy floor (rANS).
 
 ## Correct, decided, waiting
 

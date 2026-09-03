@@ -90,6 +90,13 @@ impl Canvas {
         self.data[self.idx(x, y)]
     }
 
+    /// Write sample `(x,y)`; bounds are the caller's contract (materialize
+    /// clips and/or the caller validates first).
+    pub fn set(&mut self, x: u32, y: u32, value: u8) {
+        let i = self.idx(x, y);
+        self.data[i] = value;
+    }
+
     /// Sample-for-sample equality (geometry and bytes).
     pub fn exactly_matches(&self, other: &Canvas) -> bool {
         self.width == other.width && self.height == other.height && self.data == other.data

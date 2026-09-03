@@ -33,6 +33,10 @@ pub enum Transition {
     },
     /// Move an instance to an absolute canvas position.
     SetPosition { id: InstanceId, x: i64, y: i64 },
+    /// Sparse overlay patch: authoritative pixel set above all instances.
+    /// Points must be canonical sorted; each applied pixel persists until
+    /// overwritten by a later sparse patch for that coordinate (Phase C).
+    PatchSparse { points: Vec<(i64, i64, u8)> },
 }
 
 impl Transition {
@@ -55,6 +59,7 @@ impl Transition {
                 state.create_instance(*id, *object, *x, *y)
             }
             Transition::SetPosition { id, x, y } => state.set_position(*id, *x, *y),
+            Transition::PatchSparse { points } => state.overlay_batch(points),
         }
     }
 
@@ -64,6 +69,7 @@ impl Transition {
             Transition::DeclareObject(..) | Transition::DeclareFill { .. } => "declare_object",
             Transition::CreateInstance { .. } => "create_instance",
             Transition::SetPosition { .. } => "set_position",
+            Transition::PatchSparse { .. } => "patch_sparse",
         }
     }
 }
