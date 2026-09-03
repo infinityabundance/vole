@@ -37,6 +37,7 @@ tags (`docs/format-v1.md`):
 | E | `SetVelocity` (0x26) + `AdvanceTranslations` (0x27) | per-instance persistent integer translation applied once per advance |
 | G | `ClearInstances` (0x28) / `ClearOverlay` (0x29) | full-content replacement: drop every live instance / every overlay point |
 | G | `Residual` (0x2a) | per-frame residual block (Phase-F coded payload) applied to the canvas in op order — the `⊕_ρ` residual algebra, one-shot, stateless |
+| I | `SetTrajectory` (0x2b) + `AdvanceTrajectories` (0x2c) | per-instance bounded parametric trajectory program (Linear / Accel segments) stepped once per advance; empty program deactivates; exclusive with translation state |
 
 Because Phase A declares all objects before the single checkpoint, interval
 groups in v1 contain only `CreateInstance`/`SetPosition`. Later phases broaden
@@ -45,10 +46,42 @@ the operator language; the *replay* architecture (`src/format.rs`,
 deterministic `State`, and references are validated as they are applied
 (unknown object/instance → typed error).
 
+## Phase-I trajectory semantics (normative, integer, exact)
+
+A **trajectory** is a finite motion program attached to one instance. Time
+steps are *advances*: one advance is applied per `AdvanceTrajectories`
+transition (the Phase-E choice of *explicit* stepping is kept, so the sealed
+unchanged lane is untouched and nothing steps on empty intervals). Segments
+run in order; each runs for its declared `steps` advances, then the next
+segment starts; when the final segment's steps are exhausted the trajectory
+deactivates and the instance stays at its final position.
+
+* `Linear { vx, vy, steps }` — position gains `(vx, vy)` per advance
+  (constant velocity; `(0,0)` is an exact hold).
+* `Accel { vx0, vy0, ax, ay, steps }` — velocity starts at `(vx0, vy0)` and
+  gains `(ax, ay)` *after* each advance. After `t` advances the displacement
+  is the exact integer closed form `Δ(t) = t·v0 + a·t·(t−1)/2` (velocity
+  during advance `k` is `v0 + k·a`), the discrete-time form of
+  `x(t) = x0 + v0·t + ½·a·t²`.
+
+All arithmetic is checked; an overflowing accumulation is a typed error,
+never a wrap. Trajectory and translation (`0x26/0x27`) state on one instance
+are mutually exclusive. The program is bounded (`max_trajectory_segments`
+segments); cumulative trajectory-step work is capped by
+`Limits.max_trajectory_work` at parse and encode time.
+
+§43 collapse: many repeated per-frame `SetPosition` transitions (or measured
+steady translations) may be replaced by one `SetTrajectory` descriptor plus
+per-frame `AdvanceTrajectories` **only if** materialization stays exact
+(proven by normative decode of the rebuilt stream) and the complete cost
+falls (strictly fewer bytes). Runs shorter than three frames cannot pay for
+the descriptor and are left alone.
+
 ## §/Semantics that MUST be deterministic
 
-* positions are absolute; `SetPosition` replaces (`SET_POSITION`), not `+=`,
-  in Phase A (delta/parametric trajectories arrive in a later phase);
+* positions are absolute; `SetPosition` replaces (`SET_POSITION`), not `+=`;
+  parametric motion is expressed with explicit trajectory state (Phase I)
+  rather than by mutating the absolute-position operator's meaning;
 * apply order inside an interval is the order written, and materialization
   after an interval sees exactly the composed result;
 * hostile, typed-everywhere: an interval index that is not strictly

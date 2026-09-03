@@ -1,0 +1,9 @@
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/examples/trajectory_proof`
+accel-flag-1920x1080: frames=41 vole=686B setpos_baseline=1132B velocity_baseline=1172B raw_all=85017600B vole_vs_setpos=1.650 vole_vs_raw=123932.361516 exact=true trajectory_ops=(set 1, advance 40) verify_ms=45.5
+piecewise-320x200: frames=61 vole=992B setpos_baseline=1652B ratio=1.665 exact=true trajectory_ops=(set 1, advance 60) segments=3
+static-hold-1920x1080: frames=201 vole=2918B per_frame_amortized=14.517B unchanged_lane=13.0B exact=true note="active hold costs an advance op; unchanged lane remains cheaper for statics"
+raster-linear-pan-64x64: frames=40 greedy=5201B collapsed=4759B saved_total=0.915 interval_transitions=1014B->572B saved_interval=0.564 exact=true trajectory_ops=(set 1, advance 39) greedy_ms=52 collapse_ms=0
+raster-accel-48x24: frames=8 greedy=1425B collapsed=1375B saved_total=0.965 interval_transitions=182B->132B saved_interval=0.725 exact=true translation_winners=7 trajectory_ops=(set 1, advance 7)
+noise-24x16: frames=12 vole=5194B collapsed=5194B (no run) exact=true winners=[raw]
+random-walk-64x16: frames=41 authored=1132B collapsed=1132B (no fit) exact=true

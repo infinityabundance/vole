@@ -25,6 +25,7 @@
 
 pub mod checked;
 pub mod checkpoint;
+pub mod collapse;
 pub mod decoder;
 pub mod demo;
 pub mod dsfb;
@@ -41,6 +42,7 @@ pub mod pixel;
 pub mod rans;
 pub mod state;
 pub mod time;
+pub mod trajectory;
 pub mod transition;
 pub mod universe;
 pub mod view;

@@ -85,18 +85,40 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
     materialized. The residual is a **canvas op** applied in listed order
     after any COPY_RECT/MOVE_RECT: it is one-shot for its frame and never
     mutates persistent state.
+  * `0x2b iid:u32 count:u32 seg*` — attach a bounded parametric trajectory
+    program to an instance (Phase I). `count == 0` deactivates any active
+    trajectory on the instance. Trajectory and translation (`0x26`) state on
+    one instance are mutually exclusive (attaching one removes the other).
+    Each segment is one of:
+    * kind `0x00` (linear): `vx:i32 vy:i32 steps:u64` — the position gains
+      `(vx, vy)` per advance for `steps` advances;
+    * kind `0x01` (accel): `vx0:i32 vy0:i32 ax:i32 ay:i32 steps:u64` — the
+      velocity starts at `(vx0, vy0)` and gains `(ax, ay)` after each of
+      `steps` advances (discrete `pos += v; v += a`; closed form
+      `Δ(t) = t·v0 + a·t·(t−1)/2`; velocity during advance `k` is `v0 + k·a`).
+    Canonicality: `steps ≥ 1`; every signed literal `|·| ≤ 2^24`; an `Accel`
+    with `(ax, ay) == (0, 0)` must be written `Linear`; two adjacent
+    `Linear` segments with the same velocity must be merged; `count ≤
+    max_trajectory_segments`.
+  * `0x2c` — apply one advance of every active trajectory program (Phase I):
+    each trajectory-carrying instance moves by its current velocity and its
+    segment/velocity state updates per `0x2b` semantics; a program whose
+    final segment is exhausted deactivates.
 * `|x|,|y|,|vx|,|vy| ≤ 2^24`; for copy ops `w,h ≠ 0` and `w*h ≤ max_copy_area`
   ⇒ else a typed error.
 * Cumulative translation-advance work (`moving_count` summed over every
-  `0x27`) is capped by `Limits.max_transition_work` at parse and encode time.
+  `0x27`) is capped by `Limits.max_transition_work`; cumulative trajectory
+  steps (active programs summed over every `0x2c`, counted before the step is
+  applied) are capped by `Limits.max_trajectory_work` — both enforced at parse
+  and encode time.
 * The whole file is bounded by `Limits.max_stream_bytes`.
 
-State transitions (create/set/velocity/advance/clear/patch) apply in listed
-order to procedural state; canvas ops (`0x24`, `0x25`, `0x2a`) do not touch
-state — a replay step applies every state transition of the interval first
-(in listed order), then materializes the canonical frame, then applies the
-interval's canvas ops in listed order (COPY/MOVE read their source from the
-immediately previous decoded frame; the residual op is self-contained).
+State transitions (create/set/velocity/trajectory/advance/clear/patch) apply
+in listed order to procedural state; canvas ops (`0x24`, `0x25`, `0x2a`) do not
+touch state — a replay step applies every state transition of the interval
+first (in listed order), then materializes the canonical frame, then applies
+the interval's canvas ops in listed order (COPY/MOVE read their source from
+the immediately previous decoded frame; the residual op is self-contained).
 
 ### Integrity
 

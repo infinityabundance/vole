@@ -21,11 +21,22 @@ Rust Phase-A domain model (see `src/state.rs`, `src/object.rs`):
 * An [`Instance`] is a mutable placement `(object_id, x, y)`.
 * A [`State`] holds `background`, the object table, and ordered instances.
 
+Later phases added to the domain model (`T_t`, transforms/trajectories):
+
+* per-instance persistent integer translation `(vx, vy)` (Phase E: applied
+  once per `AdvanceTranslations`);
+* per-instance bounded parametric **trajectory programs** (Phase I: finite
+  `Linear`/`Accel` segment lists in `src/trajectory.rs`; each program is
+  stepped once per `AdvanceTrajectories`, deactivates when exhausted, and is
+  mutually exclusive with translation state on the same instance).
+
 ## Immutability vs mutation
 
 * **Objects never change** once declared (`State::declare_object`).
 * **Instances change** only through explicit transitions:
-  `set_position`, `create_instance`, (Phase-B) unchanged lane handles statics.
+  `set_position`, `create_instance`, `set_velocity`/`advance_translations`
+  (Phase E), `set_trajectory`/`advance_trajectories` (Phase I); the Phase-B
+  unchanged lane handles statics.
 
 Persistent identity is *exact*: no object or instance id is recycled and no
 "looks similar" trick grants reuse. Later phases add BLAKE3 content

@@ -18,6 +18,7 @@ use crate::{
     error::VoleError,
     object::{Object, ObjectId},
     time::Interval,
+    trajectory::TrajectorySegment,
 };
 
 /// Instance identity in format-v1 index space.
@@ -34,6 +35,65 @@ pub struct Instance {
     /// Top-left canvas position of the object box.
     pub x: i64,
     pub y: i64,
+}
+
+/// The live trajectory state of one instance (Phase I). The program is the
+/// full descriptor attached by `SetTrajectory`; `seg`/`remaining` locate the
+/// evaluation inside the program and `(vx, vy)` is the current per-advance
+/// velocity (the *next* displacement to apply). See `crate::trajectory` for
+/// the exact integer semantics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceTrajectory {
+    program: Vec<TrajectorySegment>,
+    /// Index of the currently active segment.
+    seg: usize,
+    /// Advances remaining in the current segment.
+    remaining: u64,
+    /// Current velocity (per-advance displacement).
+    vx: i64,
+    vy: i64,
+}
+
+impl InstanceTrajectory {
+    /// The attached program descriptor.
+    pub fn program(&self) -> &[TrajectorySegment] {
+        &self.program
+    }
+
+    /// Index of the active segment.
+    pub fn segment_index(&self) -> usize {
+        self.seg
+    }
+
+    /// Advances remaining in the active segment.
+    pub fn remaining_steps(&self) -> u64 {
+        self.remaining
+    }
+
+    /// Current velocity `(vx, vy)`.
+    pub fn velocity(&self) -> (i64, i64) {
+        (self.vx, self.vy)
+    }
+}
+
+impl InstanceTrajectory {
+    /// Fresh trajectory positioned at the first segment.
+    fn start(program: Vec<TrajectorySegment>) -> Option<InstanceTrajectory> {
+        let seg = program.first()?;
+        let (vx, vy) = match seg {
+            TrajectorySegment::Linear { vx, vy, .. }
+            | TrajectorySegment::Accel {
+                vx0: vx, vy0: vy, ..
+            } => (*vx, *vy),
+        };
+        Some(InstanceTrajectory {
+            remaining: seg.steps(),
+            program,
+            seg: 0,
+            vx,
+            vy,
+        })
+    }
 }
 
 /// The phase-A procedural state.
@@ -54,6 +114,13 @@ pub struct State {
     /// transition: `position(t+1) = position(t) + (vx, vy)`. Absence from this
     /// map means the instance is stationary (velocity `(0,0)`).
     velocities: BTreeMap<InstanceId, (i64, i64)>,
+    /// Persistent parametric trajectory state per instance (Phase I). A
+    /// trajectory program is stepped once per `AdvanceTrajectories`
+    /// transition. Trajectory and translation state on one instance are
+    /// mutually exclusive: attaching one removes the other. Absence from this
+    /// map means the instance carries no trajectory (stationary or
+    /// velocity-driven).
+    trajectories: BTreeMap<InstanceId, InstanceTrajectory>,
     /// Which interval this state snapshot was produced for (diagnostics and
     /// checkpoint anchoring; a fresh state is interval ZERO).
     interval: Interval,
@@ -67,6 +134,7 @@ impl Default for State {
             instances: Vec::new(),
             overlay: BTreeMap::new(),
             velocities: BTreeMap::new(),
+            trajectories: BTreeMap::new(),
             interval: Interval::ZERO,
         }
     }
@@ -187,10 +255,12 @@ impl State {
 
     /// Remove every live instance. Paint order is cleared and instance ids are
     /// freed for reuse (Phase G: full-content replacement). Objects stay
-    /// declared; the background and overlay are untouched.
+    /// declared; the background and overlay are untouched. Velocities and
+    /// trajectories die with their instances.
     pub fn clear_instances(&mut self) {
         self.instances.clear();
         self.velocities.clear();
+        self.trajectories.clear();
     }
 
     /// Remove every persistent overlay point (Phase G: content replacement and
@@ -203,12 +273,14 @@ impl State {
     /// translation is applied once per [`State::advance_translations`], so the
     /// instance's position follows `position(t+1) = position(t) + (vx, vy)`
     /// while the translation is active. A `(0,0)` translation deactivates
-    /// (equivalent to no entry). Setting a translation on an unknown instance
-    /// is a typed error.
+    /// (equivalent to no entry). Translation and trajectory state are
+    /// mutually exclusive: attaching a translation removes any trajectory.
+    /// Setting a translation on an unknown instance is a typed error.
     pub fn set_velocity(&mut self, id: InstanceId, vx: i64, vy: i64) -> Result<(), VoleError> {
         if !self.instances.iter().any(|i| i.id == id) {
             return Err(VoleError::UnknownInstance);
         }
+        self.trajectories.remove(&id);
         if vx == 0 && vy == 0 {
             self.velocities.remove(&id);
         } else {
@@ -247,6 +319,109 @@ impl State {
                 .y
                 .checked_add(vy)
                 .ok_or(VoleError::ArithmeticOverflow)?;
+        }
+        Ok(())
+    }
+
+    /// Attach a trajectory program to an instance (Phase I). An **empty**
+    /// program deactivates any active trajectory (mirror of
+    /// `set_velocity(id, 0, 0)`). Trajectory and translation state are
+    /// mutually exclusive: attaching a trajectory removes any translation.
+    /// Per-segment canonicality is enforced here; the segment-count bound
+    /// against `Limits.max_trajectory_segments` is enforced by the stream
+    /// layers (parser and encoder) which own the limits. An unknown instance
+    /// or a non-canonical program is a typed error.
+    pub fn set_trajectory(
+        &mut self,
+        id: InstanceId,
+        program: Vec<TrajectorySegment>,
+    ) -> Result<(), VoleError> {
+        if !self.instances.iter().any(|i| i.id == id) {
+            return Err(VoleError::UnknownInstance);
+        }
+        if program.is_empty() {
+            self.trajectories.remove(&id);
+            return Ok(());
+        }
+        for seg in &program {
+            seg.check()?;
+        }
+        let traj = InstanceTrajectory::start(program).ok_or(VoleError::NonCanonicalEncoding)?;
+        self.velocities.remove(&id);
+        self.trajectories.insert(id, traj);
+        Ok(())
+    }
+
+    /// Whether the instance carries an active trajectory program.
+    pub fn has_trajectory(&self, id: InstanceId) -> bool {
+        self.trajectories.contains_key(&id)
+    }
+
+    /// Number of instances carrying an active trajectory program.
+    pub fn trajectory_count(&self) -> usize {
+        self.trajectories.len()
+    }
+
+    /// Borrow the live trajectory state of an instance.
+    pub fn trajectory(&self, id: InstanceId) -> Option<&InstanceTrajectory> {
+        self.trajectories.get(&id)
+    }
+
+    /// Step every active trajectory exactly once (Phase I). For each
+    /// trajectory-carrying instance, in instance list order: advance the
+    /// position by the current velocity (checked), then update the segment
+    /// state — an `Accel` segment adds `(ax, ay)` to its velocity; a segment
+    /// whose steps are exhausted moves to the next segment, and a program
+    /// whose final segment is exhausted deactivates. One O(instances) pass.
+    pub fn advance_trajectories(&mut self) -> Result<(), VoleError> {
+        let mut finished: Vec<InstanceId> = Vec::new();
+        for inst in self.instances.iter_mut() {
+            let Some(traj) = self.trajectories.get_mut(&inst.id) else {
+                continue;
+            };
+            inst.x = inst
+                .x
+                .checked_add(traj.vx)
+                .ok_or(VoleError::ArithmeticOverflow)?;
+            inst.y = inst
+                .y
+                .checked_add(traj.vy)
+                .ok_or(VoleError::ArithmeticOverflow)?;
+            match traj.program[traj.seg] {
+                TrajectorySegment::Linear { .. } => {}
+                TrajectorySegment::Accel { ax, ay, .. } => {
+                    traj.vx = traj
+                        .vx
+                        .checked_add(ax)
+                        .ok_or(VoleError::ArithmeticOverflow)?;
+                    traj.vy = traj
+                        .vy
+                        .checked_add(ay)
+                        .ok_or(VoleError::ArithmeticOverflow)?;
+                }
+            }
+            traj.remaining -= 1;
+            if traj.remaining == 0 {
+                traj.seg += 1;
+                match traj.program.get(traj.seg) {
+                    None => finished.push(inst.id),
+                    Some(next) => {
+                        traj.remaining = next.steps();
+                        match next {
+                            TrajectorySegment::Linear { vx, vy, .. }
+                            | TrajectorySegment::Accel {
+                                vx0: vx, vy0: vy, ..
+                            } => {
+                                traj.vx = *vx;
+                                traj.vy = *vy;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for id in finished {
+            self.trajectories.remove(&id);
         }
         Ok(())
     }

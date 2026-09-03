@@ -73,6 +73,7 @@ fn validate_timeline(
     let mut prev_t = 0u64;
     let limits = crate::limits::Limits::default();
     let mut advance_work: u64 = 0;
+    let mut trajectory_work: u64 = 0;
     let mut interval_no = 0u64;
     for (t, trs) in timeline {
         if *t == 0 || *t <= prev_t {
@@ -127,15 +128,33 @@ fn validate_timeline(
             if let Transition::Residual { block } = tr {
                 crate::rans::check_block(block, limits.max_residual_bytes)?;
             }
-            tr.apply(&mut st)?;
-            if let Transition::PatchSparse { .. } = tr {
-                limits.check_overlay_points(st.overlay_len() as u64)?;
+            if let Transition::SetTrajectory { segments, .. } = tr {
+                crate::trajectory::check_program(segments, &limits)?;
             }
+            if let Transition::SetVelocity { vx, vy, .. } = tr {
+                // Canonical signed-domain guard (mirrors the parser's
+                // `coord_guard`); the writer must never truncate a literal.
+                if vx.abs() > crate::format::MAX_COORD || vy.abs() > crate::format::MAX_COORD {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+            }
+            // Advance work budgets are accounted *before* the advance applies
+            // (a program that deactivates on this very step is still counted).
             if let Transition::AdvanceTranslations = tr {
                 advance_work += st.moving_count() as u64;
                 if advance_work > limits.max_transition_work {
                     return Err(VoleError::MaterializationBudgetExceeded);
                 }
+            }
+            if let Transition::AdvanceTrajectories = tr {
+                trajectory_work += st.trajectory_count() as u64;
+                if trajectory_work > limits.max_trajectory_work {
+                    return Err(VoleError::MaterializationBudgetExceeded);
+                }
+            }
+            tr.apply(&mut st)?;
+            if let Transition::PatchSparse { .. } = tr {
+                limits.check_overlay_points(st.overlay_len() as u64)?;
             }
         }
     }

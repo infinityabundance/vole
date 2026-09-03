@@ -315,3 +315,200 @@ fn clear_ops_roundtrip_and_free_ids_for_reuse() -> Result<(), VoleError> {
     assert_eq!(frames[1].get(3, 3), 255);
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Phase I hostile courts: the trajectory ops (TR_SET_TRAJECTORY 0x2b,
+// TR_ADVANCE_TRAJECTORIES 0x2c) must bound and fail typed on every hostile
+// form. A canonical trajectory stream is built, then bytes are patched in
+// place so the structural error surfaces before the integrity trailer check
+// (parse verifies the trailer last, so the specific typed error is what we
+// assert).
+// ---------------------------------------------------------------------------
+
+use vole_video::trajectory::TrajectorySegment;
+
+/// Canonical stream whose interval-1 group attaches a trajectory and steps it
+/// once. `segments` must be canonical (writer validates).
+fn trajectory_stream(segments: Vec<TrajectorySegment>) -> Result<Vec<u8>, VoleError> {
+    let mut wr = StreamWriter::begin(16, 16);
+    wr = wr.declare_object(ObjectId(1), Object::fill(16, 16, 7)?)?;
+    let inst = Instance {
+        id: InstanceId(1),
+        object_id: ObjectId(1),
+        x: 0,
+        y: 0,
+    };
+    wr = wr.checkpoint_with(&[inst])?;
+    wr = wr.interval(
+        vole_video::time::Interval(1),
+        &[
+            Transition::SetTrajectory {
+                id: InstanceId(1),
+                segments,
+            },
+            Transition::AdvanceTrajectories,
+        ],
+    )?;
+    wr.finish()
+}
+
+fn linear_trajectory_stream() -> Result<Vec<u8>, VoleError> {
+    trajectory_stream(vec![TrajectorySegment::Linear {
+        vx: 1,
+        vy: 0,
+        steps: 5,
+    }])
+}
+
+/// Offset of the single 0x2b transition tag (the crafted streams contain no
+/// other 0x2b byte in the content prefix — geometry 16, values 7, coordinates
+/// 1/2, steps 5; the integrity trailer is excluded from the search).
+fn set_trajectory_tag_offset(bytes: &[u8]) -> usize {
+    let content = &bytes[..bytes.len() - 32];
+    let hits: Vec<usize> = content
+        .windows(1)
+        .enumerate()
+        .filter(|(_, w)| w[0] == 0x2b)
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(hits.len(), 1, "exactly one 0x2b tag expected");
+    hits[0]
+}
+
+#[test]
+fn trajectory_stream_roundtrips_and_accounts() -> Result<(), VoleError> {
+    let bytes = linear_trajectory_stream()?;
+    let parsed = decoder::decode_bytes(&bytes)?;
+    let frames = vole_video::decoder::materialize_all(&parsed)?;
+    assert_eq!(frames.len(), 2);
+    // One advance moved the 16x16 fill one sample right.
+    assert_eq!(frames[1].get(1, 0), 7);
+    assert_eq!(frames[1].get(0, 0), 0);
+    // Physical accounting classifies every byte (buckets sum to total).
+    let cost = vole_video::inverse::account_stream(&bytes)?;
+    let sum = cost.header_bytes
+        + cost.object_bytes
+        + cost.checkpoint_bytes
+        + cost.transition_bytes
+        + cost.residual_bytes
+        + cost.model_bytes
+        + cost.state_bytes
+        + cost.dictionary_bytes
+        + cost.index_bytes
+        + cost.integrity_bytes;
+    assert_eq!(sum, cost.total_bytes);
+    assert_eq!(cost.total_bytes, bytes.len() as u64);
+    assert!(cost.transition_bytes > 0);
+    Ok(())
+}
+
+#[test]
+fn trajectory_segment_count_over_limit_is_typed_error() -> Result<(), VoleError> {
+    let bytes = linear_trajectory_stream()?;
+    let tag = set_trajectory_tag_offset(&bytes);
+    // count:u32 lives right after tag(1) + iid(4).
+    let mut b = bytes;
+    let at = tag + 1 + 4;
+    b[at..at + 4].copy_from_slice(&300u32.to_le_bytes());
+    assert_eq!(
+        decoder::decode_bytes(&b).unwrap_err(),
+        VoleError::MaterializationBudgetExceeded
+    );
+    Ok(())
+}
+
+#[test]
+fn trajectory_zero_steps_is_typed_error() -> Result<(), VoleError> {
+    let bytes = linear_trajectory_stream()?;
+    let tag = set_trajectory_tag_offset(&bytes);
+    // Linear layout: kind(1) vx(4) vy(4) steps(8); steps at tag+1+4+4+1+4+4.
+    let mut b = bytes;
+    let at = tag + 1 + 4 + 4 + 1 + 4 + 4;
+    b[at..at + 8].copy_from_slice(&0u64.to_le_bytes());
+    assert_eq!(
+        decoder::decode_bytes(&b).unwrap_err(),
+        VoleError::NonCanonicalEncoding
+    );
+    Ok(())
+}
+
+#[test]
+fn trajectory_unknown_segment_kind_is_typed_error() -> Result<(), VoleError> {
+    let bytes = linear_trajectory_stream()?;
+    let tag = set_trajectory_tag_offset(&bytes);
+    // kind:u8 is the first byte of the segment: tag(1) + iid(4) + count(4).
+    let mut b = bytes;
+    b[tag + 1 + 4 + 4] = 0xEE;
+    assert_eq!(
+        decoder::decode_bytes(&b).unwrap_err(),
+        VoleError::NonCanonicalEncoding
+    );
+    Ok(())
+}
+
+#[test]
+fn trajectory_velocity_out_of_coord_domain_is_typed_error() -> Result<(), VoleError> {
+    let bytes = linear_trajectory_stream()?;
+    let tag = set_trajectory_tag_offset(&bytes);
+    // vx at tag+1+4+4+1; set it to 2^24 + 1 (outside the ±2^24 wire domain).
+    let mut b = bytes;
+    let at = tag + 1 + 4 + 4 + 1;
+    b[at..at + 4].copy_from_slice(&((1i32 << 24) + 1).to_le_bytes());
+    assert_eq!(
+        decoder::decode_bytes(&b).unwrap_err(),
+        VoleError::NonCanonicalEncoding
+    );
+    Ok(())
+}
+
+#[test]
+fn trajectory_zero_acceleration_is_typed_error() -> Result<(), VoleError> {
+    // A canonical Accel segment patched to (ax, ay) == (0, 0) must be rejected:
+    // a zero acceleration is a constant velocity and must be Linear.
+    let bytes = trajectory_stream(vec![TrajectorySegment::Accel {
+        vx0: 1,
+        vy0: 0,
+        ax: 1,
+        ay: 0,
+        steps: 5,
+    }])?;
+    let tag = set_trajectory_tag_offset(&bytes);
+    // Accel layout: kind(1) vx0(4) vy0(4) ax(4) ay(4) steps(8); ax at
+    // tag+1+4+4+1+4+4.
+    let mut b = bytes;
+    let at = tag + 1 + 4 + 4 + 1 + 4 + 4;
+    b[at..at + 4].copy_from_slice(&0i32.to_le_bytes());
+    assert_eq!(
+        decoder::decode_bytes(&b).unwrap_err(),
+        VoleError::NonCanonicalEncoding
+    );
+    Ok(())
+}
+
+#[test]
+fn trajectory_with_empty_program_deactivates() -> Result<(), VoleError> {
+    // An empty program (count = 0) is the canonical deactivation form: the
+    // stream parses and the instance never moves.
+    let bytes = trajectory_stream(Vec::new())?;
+    let parsed = decoder::decode_bytes(&bytes)?;
+    let frames = vole_video::decoder::materialize_all(&parsed)?;
+    assert_eq!(frames.len(), 2);
+    assert_eq!(frames[0], frames[1]);
+    Ok(())
+}
+
+#[test]
+fn trajectory_program_too_long_to_serialize_is_typed_error() -> Result<(), VoleError> {
+    // Encoder-side guard: a program exceeding `max_trajectory_segments` is a
+    // typed error before any bytes are written.
+    let segments: Vec<TrajectorySegment> = (0..300u32)
+        .map(|k| TrajectorySegment::Linear {
+            vx: i64::from(k % 7) + 1,
+            vy: 0,
+            steps: 2,
+        })
+        .collect();
+    let res = trajectory_stream(segments);
+    assert_eq!(res.unwrap_err(), VoleError::MaterializationBudgetExceeded);
+    Ok(())
+}

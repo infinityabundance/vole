@@ -77,6 +77,10 @@ fn tr_len(tr: &Transition) -> u64 {
         Transition::AdvanceTranslations | Transition::ClearInstances | Transition::ClearOverlay => {
             1
         }
+        Transition::AdvanceTrajectories => 1,
+        Transition::SetTrajectory { segments, .. } => {
+            crate::trajectory::program_wire_bytes(segments)
+        }
         Transition::PatchSparse { points } => 5 + 9 * points.len() as u64,
         Transition::CopyRect { .. } | Transition::MoveRect { .. } => 25,
         Transition::Residual { block } => 5 + block.len() as u64,
@@ -301,6 +305,31 @@ pub fn account_stream(bytes: &[u8]) -> Result<RepresentationCost, VoleError> {
                         }
                         0x27..=0x29 => {
                             cost.transition_bytes += 1;
+                        }
+                        0x2c => {
+                            cost.transition_bytes += 1;
+                        }
+                        0x2b => {
+                            let _id = r.pull::<u32>()?;
+                            let m = r.pull::<u32>()?;
+                            if u64::from(m) > u64::from(limits.max_trajectory_segments) {
+                                return Err(VoleError::MaterializationBudgetExceeded);
+                            }
+                            let mut seg_bytes = 9u64;
+                            for _ in 0..m {
+                                match r.u8()? {
+                                    crate::trajectory::SEG_LINEAR => {
+                                        r.skip(16)?;
+                                        seg_bytes += 17;
+                                    }
+                                    crate::trajectory::SEG_ACCEL => {
+                                        r.skip(24)?;
+                                        seg_bytes += 25;
+                                    }
+                                    _ => return Err(VoleError::NonCanonicalEncoding),
+                                }
+                            }
+                            cost.transition_bytes += seg_bytes;
                         }
                         0x2a => {
                             let len = r.pull::<u32>()?;

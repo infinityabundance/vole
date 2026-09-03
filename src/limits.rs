@@ -55,6 +55,15 @@ pub struct Limits {
     /// triplets are 9 bytes each). The wire block may exceed this only by the
     /// container envelope slack (see `RESIDUAL_WIRE_SLACK`).
     pub max_residual_bytes: u64,
+    /// Maximum segments in one trajectory program descriptor (Phase I: a
+    /// `SetTrajectory` payload is bounded so one op can never describe an
+    /// unbounded motion program).
+    pub max_trajectory_segments: u32,
+    /// Cumulative work budget for trajectory advances during one parse/decode
+    /// (count of per-instance trajectory steps, symmetric to
+    /// `max_transition_work`). A hostile stream cannot force unbounded
+    /// trajectory stepping through many active programs.
+    pub max_trajectory_work: u64,
 }
 
 impl Default for Limits {
@@ -78,6 +87,8 @@ impl Default for Limits {
             max_stream_bytes: 1 << 30,       // 1 GiB
             max_overlay_points: 1920 * 1080, // one persistent point per sample
             max_residual_bytes: 9 * (1920 * 1080) + RESIDUAL_WIRE_SLACK,
+            max_trajectory_segments: 256,
+            max_trajectory_work: 1 << 22,
         }
     }
 }

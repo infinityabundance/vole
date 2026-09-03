@@ -10,6 +10,7 @@ use crate::{
     object::{Object, ObjectId},
     pixel::Canvas,
     state::{Instance, InstanceId},
+    trajectory::{self, TrajectorySegment},
     transition::Transition,
 };
 
@@ -694,4 +695,241 @@ pub fn translation_hypothesis_exact(
         .iter()
         .enumerate()
         .all(|(k, (x, y))| *x == x0 + vx * (k as i64) && *y == y0 + vy * (k as i64))
+}
+
+/// Phase-I direct-procedural court: a parametric trajectory drives one
+/// instance. The default content is the accelerating analogue of §76 — one
+/// 200×100 box on a 1920×1080 Gray8 canvas whose velocity grows by `(1,0)`
+/// every interval — stored as *one object, one instance, one checkpoint, one
+/// trajectory program* and stepped by one-byte advances, never as per-frame
+/// rasters or per-frame coordinate payloads.
+///
+/// The reference raster is an **independent** painter driven by a closed-form
+/// position table (`trajectory::simulate_positions`), so a shared stepping bug
+/// cannot mask a mismatch: `materialize_and_verify` proves the normative
+/// materializer reproduces the same positions the closed form predicts.
+pub struct TrajectoryCourt {
+    /// Canvas width.
+    pub width: u32,
+    /// Canvas height.
+    pub height: u32,
+    /// Object box width.
+    pub box_w: u32,
+    /// Object box height.
+    pub box_h: u32,
+    /// Object fill value.
+    pub value: u8,
+    /// Object / instance ids.
+    pub object_id: u32,
+    pub instance_id: u32,
+    /// Start position.
+    pub x0: i64,
+    pub y0: i64,
+    /// Trajectory program; its total step count must equal `intervals`.
+    pub segments: Vec<TrajectorySegment>,
+    /// Number of intervals (frames == intervals + 1).
+    pub intervals: u64,
+}
+
+impl Default for TrajectoryCourt {
+    fn default() -> Self {
+        TrajectoryCourt {
+            width: 1920,
+            height: 1080,
+            box_w: 200,
+            box_h: 100,
+            value: 180,
+            object_id: 7,
+            instance_id: 1,
+            x0: 100,
+            y0: 60,
+            // v(t) = (2 + t, 1): constant acceleration (1, 0) per interval.
+            segments: vec![TrajectorySegment::Accel {
+                vx0: 2,
+                vy0: 1,
+                ax: 1,
+                ay: 0,
+                steps: 40,
+            }],
+            intervals: 40,
+        }
+    }
+}
+
+impl TrajectoryCourt {
+    fn object(&self) -> Object {
+        Object::fill(self.box_w, self.box_h, self.value).expect("box fits")
+    }
+
+    fn check(&self) -> Result<(), VoleError> {
+        let total: u64 = self.segments.iter().map(TrajectorySegment::steps).sum();
+        if total != self.intervals {
+            return Err(VoleError::ApiConstraint(
+                "trajectory program steps must equal the court intervals",
+            ));
+        }
+        crate::trajectory::check_program(&self.segments, &crate::limits::Limits::default())?;
+        Ok(())
+    }
+
+    /// Exact per-frame positions of the moving instance (frame 0 is the start
+    /// placement). Closed-form evaluation, independent of the state stepper.
+    pub fn positions(&self) -> Result<Vec<(i64, i64)>, VoleError> {
+        self.check()?;
+        trajectory::simulate_positions(&self.segments, self.x0, self.y0, self.intervals).ok_or(
+            VoleError::ApiConstraint("trajectory simulation overflowed or fell short"),
+        )
+    }
+
+    /// Canonical `.vole` bytes: one `SetTrajectory` at interval 1, then one
+    /// `AdvanceTrajectories` per interval — never a stored frame, never a
+    /// per-frame coordinate payload.
+    pub fn vole(&self) -> Result<Vec<u8>, VoleError> {
+        self.check()?;
+        let obj = self.object();
+        let inst = Instance {
+            id: InstanceId(self.instance_id),
+            object_id: ObjectId(self.object_id),
+            x: self.x0,
+            y: self.y0,
+        };
+        let mut timeline = Vec::with_capacity(self.intervals as usize);
+        for k in 1..=self.intervals {
+            let group = if k == 1 {
+                vec![
+                    Transition::SetTrajectory {
+                        id: InstanceId(self.instance_id),
+                        segments: self.segments.clone(),
+                    },
+                    Transition::AdvanceTrajectories,
+                ]
+            } else {
+                vec![Transition::AdvanceTrajectories]
+            };
+            timeline.push((k, group));
+        }
+        encoder::encode_stream(
+            self.width,
+            self.height,
+            0,
+            &[(self.object_id, obj)],
+            &[inst],
+            &timeline,
+        )
+    }
+
+    /// Independent reference `.raw` frames: each frame paints the box at the
+    /// closed-form position table.
+    pub fn reference_raw(&self) -> Result<Vec<u8>, VoleError> {
+        let raster = self.object().expand();
+        let mut raw = Vec::new();
+        for (x, y) in self.positions()? {
+            raw.extend(reference_painter(
+                self.width,
+                self.height,
+                0,
+                &[(x, y, &raster, self.box_w, self.box_h)],
+            ));
+        }
+        Ok(raw)
+    }
+
+    /// Materialize and byte-exact verify against the independent reference.
+    pub fn materialize_and_verify(&self) -> Result<Vec<Canvas>, VoleError> {
+        let parsed = decoder::decode_bytes(&self.vole()?)?;
+        let frames = decoder::materialize_all(&parsed)?;
+        let mut got = Vec::new();
+        for c in &frames {
+            got.extend_from_slice(c.as_slice());
+        }
+        if got != self.reference_raw()? {
+            return Err(VoleError::ApiConstraint(
+                "trajectory diverged from reference",
+            ));
+        }
+        Ok(frames)
+    }
+
+    /// The equivalent per-frame absolute `SetPosition` stream (baseline for
+    /// the byte comparison; same frames, no parametric state).
+    pub fn set_position_baseline_bytes(&self) -> Result<Vec<u8>, VoleError> {
+        let obj = self.object();
+        let inst = Instance {
+            id: InstanceId(self.instance_id),
+            object_id: ObjectId(self.object_id),
+            x: self.x0,
+            y: self.y0,
+        };
+        let positions = self.positions()?;
+        let mut timeline = Vec::with_capacity(self.intervals as usize);
+        for k in 1..=self.intervals {
+            let (x, y) = positions[k as usize];
+            timeline.push((
+                k,
+                vec![Transition::SetPosition {
+                    id: InstanceId(self.instance_id),
+                    x,
+                    y,
+                }],
+            ));
+        }
+        encoder::encode_stream(
+            self.width,
+            self.height,
+            0,
+            &[(self.object_id, obj)],
+            &[inst],
+            &timeline,
+        )
+    }
+
+    /// The equivalent per-frame `SetVelocity + AdvanceTranslations` stream
+    /// (the Phase-E baseline for motion whose velocity is *not* constant: the
+    /// velocity must be rewritten every interval).
+    pub fn velocity_baseline_bytes(&self) -> Result<Vec<u8>, VoleError> {
+        let obj = self.object();
+        let inst = Instance {
+            id: InstanceId(self.instance_id),
+            object_id: ObjectId(self.object_id),
+            x: self.x0,
+            y: self.y0,
+        };
+        let positions = self.positions()?;
+        let mut timeline = Vec::with_capacity(self.intervals as usize);
+        for k in 1..=self.intervals {
+            let p_prev = positions[k as usize - 1];
+            let p = positions[k as usize];
+            let vx = p.0 - p_prev.0;
+            let vy = p.1 - p_prev.1;
+            timeline.push((
+                k,
+                vec![
+                    Transition::SetVelocity {
+                        id: InstanceId(self.instance_id),
+                        vx,
+                        vy,
+                    },
+                    Transition::AdvanceTranslations,
+                ],
+            ));
+        }
+        encoder::encode_stream(
+            self.width,
+            self.height,
+            0,
+            &[(self.object_id, obj)],
+            &[inst],
+            &timeline,
+        )
+    }
+
+    /// Number of materializable frames.
+    pub fn frame_count(&self) -> u64 {
+        1 + self.intervals
+    }
+
+    /// Total raw raster bytes of the canonical frame sequence.
+    pub fn raw_bytes_all(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height) * self.frame_count()
+    }
 }

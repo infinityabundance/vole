@@ -1,15 +1,16 @@
 //! Procedural transition operators applied forward to advance state.
 //!
 //! A transition remaps `G_t → G_{t+1}` inside the deterministic envelope
-//! [`State`]. In phase A the operator language is deliberately small but the
-//! *infrastructure* — typed transitions, incremental state application, and
-//! replay — is real. Later phases extend the language (COPY_RECT, trajectories,
-//! palette, generators) without changing the replay architecture.
+//! [`State`]. The operator language grows by phase (CREATE/SET, sparse patch,
+//! copy/move canvas ops, translation state, trajectories) while the *replay
+//! architecture* — typed transitions, incremental state application, and
+//! replay — stays unchanged.
 
 use crate::{
     error::VoleError,
     object::{Object, ObjectId},
     state::{InstanceId, State},
+    trajectory::TrajectorySegment,
 };
 
 /// One procedural transition step.
@@ -37,6 +38,20 @@ pub enum Transition {
     SetVelocity { id: InstanceId, vx: i64, vy: i64 },
     /// Apply every active integer translation once (Phase E).
     AdvanceTranslations,
+    /// Attach a bounded parametric trajectory program to an instance (Phase I).
+    /// An empty program deactivates any active trajectory. Trajectory and
+    /// translation state are mutually exclusive (attaching one removes the
+    /// other).
+    SetTrajectory {
+        id: InstanceId,
+        /// Finite segment program; count bounded by
+        /// `Limits.max_trajectory_segments`, canonical forms enforced.
+        segments: Vec<TrajectorySegment>,
+    },
+    /// Apply one advance of every active trajectory program (Phase I): each
+    /// trajectory-carrying instance moves by its current velocity and its
+    /// segment/velocity state updates per `crate::trajectory` semantics.
+    AdvanceTrajectories,
     /// Sparse overlay patch: authoritative pixel set above all instances.
     /// Points must be canonical sorted; each applied pixel persists until
     /// overwritten by a later sparse patch for that coordinate (Phase C).
@@ -105,6 +120,10 @@ impl Transition {
             Transition::SetPosition { id, x, y } => state.set_position(*id, *x, *y),
             Transition::SetVelocity { id, vx, vy } => state.set_velocity(*id, *vx, *vy),
             Transition::AdvanceTranslations => state.advance_translations(),
+            Transition::SetTrajectory { id, segments } => {
+                state.set_trajectory(*id, segments.clone())
+            }
+            Transition::AdvanceTrajectories => state.advance_trajectories(),
             Transition::PatchSparse { points } => state.overlay_batch(points),
             // Frame-referencing ops act on the decode canvas, not on the
             // painter State, so they are no-ops here. Their bounds geometry is
@@ -133,6 +152,8 @@ impl Transition {
             Transition::SetPosition { .. } => "set_position",
             Transition::SetVelocity { .. } => "set_velocity",
             Transition::AdvanceTranslations => "advance_translations",
+            Transition::SetTrajectory { .. } => "set_trajectory",
+            Transition::AdvanceTrajectories => "advance_trajectories",
             Transition::PatchSparse { .. } => "patch_sparse",
             Transition::CopyRect { .. } => "copy_rect",
             Transition::MoveRect { .. } => "move_rect",

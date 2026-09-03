@@ -73,6 +73,8 @@ pub(crate) const TR_ADVANCE_TRANSLATIONS: u8 = 0x27;
 pub(crate) const TR_CLEAR_INSTANCES: u8 = 0x28;
 pub(crate) const TR_CLEAR_OVERLAY: u8 = 0x29;
 pub(crate) const TR_RESIDUAL: u8 = 0x2a;
+pub(crate) const TR_SET_TRAJECTORY: u8 = 0x2b;
+pub(crate) const TR_ADVANCE_TRAJECTORIES: u8 = 0x2c;
 
 /// Maximum representable absolute coordinate on the wire.
 pub(crate) const MAX_COORD: i64 = 1 << 24;
@@ -240,6 +242,7 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
     let mut initial_opt: Option<State> = None;
     let mut saw_checkpoint = false;
     let mut advance_work: u64 = 0;
+    let mut trajectory_work: u64 = 0;
     let mut intervals: Vec<(Interval, Vec<Transition>)> = Vec::new();
     let mut next_t = 0u64;
     let mut object_ids: HashSet<u32> = HashSet::new();
@@ -391,6 +394,54 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                             crate::rans::check_block(&block, limits.max_residual_bytes)?;
                             Transition::Residual { block }
                         }
+                        TR_SET_TRAJECTORY => {
+                            let id = InstanceId(r.pull::<u32>()?);
+                            let n = r.pull::<u32>()?;
+                            if u64::from(n) > u64::from(limits.max_trajectory_segments) {
+                                return Err(VoleError::MaterializationBudgetExceeded);
+                            }
+                            let mut segments = Vec::with_capacity(n as usize);
+                            for _ in 0..n {
+                                let kind = r.u8()?;
+                                let seg = match kind {
+                                    crate::trajectory::SEG_LINEAR => {
+                                        let vx = i64::from(r.pull::<i32>()?);
+                                        let vy = i64::from(r.pull::<i32>()?);
+                                        let steps = r.pull::<u64>()?;
+                                        coord_guard(vx)?;
+                                        coord_guard(vy)?;
+                                        crate::trajectory::TrajectorySegment::Linear {
+                                            vx,
+                                            vy,
+                                            steps,
+                                        }
+                                    }
+                                    crate::trajectory::SEG_ACCEL => {
+                                        let vx0 = i64::from(r.pull::<i32>()?);
+                                        let vy0 = i64::from(r.pull::<i32>()?);
+                                        let ax = i64::from(r.pull::<i32>()?);
+                                        let ay = i64::from(r.pull::<i32>()?);
+                                        let steps = r.pull::<u64>()?;
+                                        coord_guard(vx0)?;
+                                        coord_guard(vy0)?;
+                                        coord_guard(ax)?;
+                                        coord_guard(ay)?;
+                                        crate::trajectory::TrajectorySegment::Accel {
+                                            vx0,
+                                            vy0,
+                                            ax,
+                                            ay,
+                                            steps,
+                                        }
+                                    }
+                                    _ => return Err(VoleError::NonCanonicalEncoding),
+                                };
+                                seg.check()?;
+                                segments.push(seg);
+                            }
+                            Transition::SetTrajectory { id, segments }
+                        }
+                        TR_ADVANCE_TRAJECTORIES => Transition::AdvanceTrajectories,
                         TR_COPY_RECT | TR_MOVE_RECT => {
                             let is_copy = t2 == TR_COPY_RECT;
                             let src_x = i64::from(r.pull::<i32>()?);
@@ -431,18 +482,24 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                         }
                         _ => return Err(VoleError::NonCanonicalEncoding),
                     };
-                    tr.apply(&mut cur)?;
-                    if let Transition::PatchSparse { .. } = tr {
-                        limits.check_overlay_points(cur.overlay_len() as u64)?;
-                    }
+                    // Hostile work budgets are accounted *before* the advance is
+                    // applied, so a program that deactivates on this very step is
+                    // still counted (mirrors `max_transition_work` semantics).
                     if let Transition::AdvanceTranslations = tr {
-                        // Hostile bound: cumulative per-instance advance work must
-                        // stay inside the envelope (checked after the advance, so
-                        // the work itself is bounded by max_transition_work).
                         advance_work += cur.moving_count() as u64;
                         if advance_work > limits.max_transition_work {
                             return Err(VoleError::MaterializationBudgetExceeded);
                         }
+                    }
+                    if let Transition::AdvanceTrajectories = tr {
+                        trajectory_work += cur.trajectory_count() as u64;
+                        if trajectory_work > limits.max_trajectory_work {
+                            return Err(VoleError::MaterializationBudgetExceeded);
+                        }
+                    }
+                    tr.apply(&mut cur)?;
+                    if let Transition::PatchSparse { .. } = tr {
+                        limits.check_overlay_points(cur.overlay_len() as u64)?;
                     }
                     group.push(tr);
                 }
@@ -611,6 +668,39 @@ fn write_transition(sink: &mut ByteSink, t: &Transition) -> Result<(), VoleError
             sink.push(wpos(*vy))
         }
         Transition::AdvanceTranslations => sink.byte(TR_ADVANCE_TRANSLATIONS),
+        Transition::AdvanceTrajectories => sink.byte(TR_ADVANCE_TRAJECTORIES),
+        Transition::SetTrajectory { id, segments } => {
+            let n = u32::try_from(segments.len()).map_err(|_| VoleError::ArithmeticOverflow)?;
+            crate::trajectory::check_program(segments, &crate::limits::Limits::default())?;
+            sink.byte(TR_SET_TRAJECTORY)?;
+            sink.push(id.0)?;
+            sink.push(n)?;
+            for seg in segments {
+                match seg {
+                    crate::trajectory::TrajectorySegment::Linear { vx, vy, steps } => {
+                        sink.byte(crate::trajectory::SEG_LINEAR)?;
+                        sink.push(wpos(*vx))?;
+                        sink.push(wpos(*vy))?;
+                        sink.push(*steps)?;
+                    }
+                    crate::trajectory::TrajectorySegment::Accel {
+                        vx0,
+                        vy0,
+                        ax,
+                        ay,
+                        steps,
+                    } => {
+                        sink.byte(crate::trajectory::SEG_ACCEL)?;
+                        sink.push(wpos(*vx0))?;
+                        sink.push(wpos(*vy0))?;
+                        sink.push(wpos(*ax))?;
+                        sink.push(wpos(*ay))?;
+                        sink.push(*steps)?;
+                    }
+                }
+            }
+            Ok(())
+        }
         Transition::ClearInstances => sink.byte(TR_CLEAR_INSTANCES),
         Transition::ClearOverlay => sink.byte(TR_CLEAR_OVERLAY),
         Transition::Residual { block } => {
@@ -663,9 +753,12 @@ fn write_transition(sink: &mut ByteSink, t: &Transition) -> Result<(), VoleError
             *dst_x,
             *dst_y,
         ),
-        // These variants only appear in files in later v-formats; writing them
-        // in a v1 file is rejected to keep the v1 grammar closed.
-        _ => Err(VoleError::NonCanonicalEncoding),
+        Transition::DeclareObject(..) | Transition::DeclareFill { .. } => {
+            // Object declarations are written pre-checkpoint by
+            // `write_object_decl`; inside an interval group they would break
+            // the v1 grammar and are rejected.
+            Err(VoleError::NonCanonicalEncoding)
+        }
     }
 }
 

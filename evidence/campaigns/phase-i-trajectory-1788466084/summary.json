@@ -1,0 +1,87 @@
+{
+  "phase": "I",
+  "semantics": "bounded parametric trajectories as first-class procedural state: per-instance finite programs of Linear (constant velocity / exact hold) and Accel (constant acceleration, discrete integer semantics pos += v; v += a, closed form D(t) = t*v0 + a*t*(t-1)/2) segments, stepped once per AdvanceTrajectories; wire tags 0x2b (SetTrajectory) and 0x2c (AdvanceTrajectories); empty program = deactivation; trajectory and translation state on one instance are mutually exclusive. Trajectory collapse (section 43): a maximal run of single-SetPosition interval groups is rewritten into one SetTrajectory descriptor plus per-frame AdvanceTrajectories only when the rebuilt stream decodes byte-identically to the original (normative proof) and is strictly smaller (complete cost falls).",
+  "limits_added": {
+    "max_trajectory_segments": 256,
+    "max_trajectory_work": 4194304
+  },
+  "courts": {
+    "accel_flag_1920x1080": {
+      "content": "one 200x100 box, v(t) = (2 + t, 1) for 40 intervals (constant acceleration (1,0)/interval), accelerating analogue of section 76",
+      "frames": 41,
+      "vole_trajectory_bytes": 686,
+      "setposition_baseline_bytes": 1132,
+      "velocity_baseline_bytes": 1172,
+      "raw_all_bytes": 85017600,
+      "vole_vs_setposition": 1.65,
+      "vole_vs_raw_x": 123932.36,
+      "trajectory_ops": { "set_trajectory": 1, "advance_trajectories": 40 },
+      "exact": true,
+      "note": "verified byte-exact against an independent closed-form reference painter"
+    },
+    "piecewise_320x200": {
+      "content": "move 4px/interval x20, exact hold x10, reverse 2px/interval x30",
+      "frames": 61,
+      "vole_bytes": 992,
+      "setposition_baseline_bytes": 1652,
+      "ratio": 1.665,
+      "segments": 3,
+      "exact": true
+    },
+    "static_hold_1920x1080": {
+      "content": "zero-velocity Linear program ('constant' motion) maintained for 200 intervals",
+      "frames": 201,
+      "vole_bytes": 2918,
+      "per_frame_amortized_bytes": 14.517,
+      "unchanged_lane_bytes_per_frame": 13.0,
+      "note": "negative-ish control measured honestly: an active hold costs an advance op per frame, so statics stay in the Phase-B unchanged lane"
+    },
+    "raster_linear_pan_64x64": {
+      "content": "raster-origin: 10x6 box gliding diagonally over uniform 90, encoded greedily (Phase G) then collapsed (Phase I)",
+      "frames": 40,
+      "greedy_bytes": 5201,
+      "collapsed_bytes": 4759,
+      "saved_total_ratio": 0.915,
+      "interval_transitions_bytes": "1014 -> 572",
+      "saved_interval_ratio": 0.564,
+      "trajectory_ops": { "set_trajectory": 1, "advance_trajectories": 39 },
+      "exact": true
+    },
+    "raster_accel_48x24": {
+      "content": "raster-origin: accelerating box (v grows by 1/interval, v0 = 1, 7 motion frames)",
+      "frames": 8,
+      "greedy_bytes": 1425,
+      "collapsed_bytes": 1375,
+      "saved_total_ratio": 0.965,
+      "interval_transitions_bytes": "182 -> 132",
+      "saved_interval_ratio": 0.725,
+      "winner_fit": "accel segment (descriptor 34 B)",
+      "trajectory_ops": { "set_trajectory": 1, "advance_trajectories": 7 },
+      "exact": true
+    },
+    "noise_negative_control_24x16": {
+      "frames": 12,
+      "vole_bytes": 5194,
+      "collapsed_bytes": 5194,
+      "winner_families": "rawx12",
+      "note": "no SetPosition run exists; stream is a collapse fixpoint",
+      "exact": true
+    },
+    "random_walk_negative_control": {
+      "frames": 41,
+      "authored_bytes": 1132,
+      "collapsed_bytes": 1132,
+      "note": "random-walk position timeline: no exact linear/accel/piecewise fit pays; fixpoint",
+      "exact": true
+    }
+  },
+  "all_streams_exact": true,
+  "test_count": "tests/phase_i.rs 14 courts + tests/malformed.rs 8 Phase-I hostile courts + trajectory/collapse unit tests; full gate: cargo fmt --check, cargo check --all-targets, cargo clippy --all-targets --all-features -- -D warnings, cargo test --all-features (122 tests, 0 failures)",
+  "notes": [
+    "Collapse acceptance requires (1) exactness proven by normative decode of the rebuilt stream versus the original, and (2) strictly fewer total bytes. The encoder never trusts a fitted hypothesis from appearance.",
+    "SetPosition runs shorter than 3 frames cannot pay for a trajectory descriptor and are left alone (measured by the byte gate).",
+    "Exact integer semantics only; no floating point anywhere in the normative path.",
+    "A trajectory deactivates exactly when its final segment's steps are exhausted; the instance then stays at its final position (the unchanged lane resumes).",
+    "Per-frame representation costs on motion: SetPosition 26 B/frame, trajectory steady-state 14 B/frame (13 B interval envelope + 1 B advance) plus one amortized descriptor."
+  ]
+}

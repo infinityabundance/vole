@@ -26,6 +26,9 @@ independently re-derived reference in `proof/`.
 | stored stream is not raster-proportional | PASS |
 | hostile-input cases all terminate typed | PASS |
 | `cargo fmt`, `check`, `clippy -D warnings`, `test` | PASS |
+| Phase I: trajectory materialization == independent closed-form painter, all frames | PASS |
+| Phase I: closed-form simulator == normative state stepper (200 random programs) | PASS |
+| Phase I: trajectory collapse decode-identical and strictly smaller | PASS |
 
 ## Goldens
 

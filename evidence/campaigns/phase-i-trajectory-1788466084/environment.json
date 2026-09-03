@@ -1,0 +1,7 @@
+{
+  "commit": "c4f6c640ed9ca952cea349b149fd85e22b6c2abb",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "platform": "Linux-7.2.2-1-cachyos-x86_64",
+  "command": "cargo run --release --example trajectory_proof",
+  "profile": "release"
+}

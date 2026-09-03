@@ -27,12 +27,12 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Search strategies over one candidate universe (Exhaustive / FixedHeuristic / DsfbGuided) | ADOPTED | Phase H: N_dsfb ≤ 0.18× N_exhaustive with J_dsfb == J_exhaustive byte-identical on steady courts; regime J 1.055× oracle, 0–1 frame recovery; fixed-heuristic probe misses measured at J 11.5× (`tests/phase_h.rs`, `examples/dsfb_proof.rs`) |
 | DSFB governor (deterministic trust model; φ/ω/α; regime broadening; rotating sweep) | ADOPTED (non-normative) | Phase H: never in decode; exact-final-cost and RAW-sentinel authority preserved; diagnostics recorded per frame |
 | Local procedural rebase (whole-frame RAW recapture) | ADOPTED (measured) | Phase H: rebase events counted per strategy (noise 14 + switch frames); bounded recovery latency |
-| Trajectory collapse | PROPOSED | pending (measured temporal gap; Phase I/O) |
+| Parametric dynamics — bounded trajectory programs (Linear/Accel segments, integer, exact) as first-class state | ADOPTED | Phase I: tags 0x2b/0x2c; accel flagship 686 B vs 1 132 B per-frame `SetPosition` / 1 172 B per-frame `SetVelocity` baselines (123 932× vs raw); piecewise holds exact; hostile budget courts (`tests/phase_i.rs`) |
+| Trajectory collapse (§43) — repeated `SetPosition` runs → one trajectory, exactness proven by normative decode, strict byte fall | ADOPTED | Phase I: raster linear pan interval transitions 1 014 → 572 B (0.564×); raster accel 182 → 132 B (0.725×); noise & random-walk fixpoints (`src/collapse.rs`, `tests/phase_i.rs`) |
 | Palettes | PROPOSED | pending |
 | Affine / global state | PROPOSED | pending |
 | Transform residual | PROPOSED | pending |
 | Procedural generators | PROPOSED | pending |
-| Parametric dynamics | PROPOSED | pending |
 | Partial materialization (tile/rect) | PROPOSED | pending |
 | Resolution-independent procedural state | PROPOSED | pending |
 | DSFB-governed search | PROPOSED (non-normative) | pending courts |
