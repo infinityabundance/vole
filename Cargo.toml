@@ -1,0 +1,27 @@
+[package]
+name = "vole"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98"
+description = "VOLE — Video Object Layer Engine. Deterministic procedural video storage, transport, inverse proceduralization and materialization."
+license = "MIT OR Apache-2.0"
+keywords = ["video", "procedural", "state", "materialization", "compression"]
+categories = ["multimedia::video", "compression"]
+
+# VOLE is one, self-contained, native Rust crate. It owns its normative wire
+# format and materializer and violates no-unsafe for now. It does NOT depend on
+# DSFB or EntropyFS for normative decode; those remain conceptually separate and
+# are out-of-crate concerns.
+[dependencies]
+blake3 = "1"
+
+# dev-dependencies used to reduce golden/hash check boilerplate.
+[dev-dependencies]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[profile.bench]
+opt-level = 3

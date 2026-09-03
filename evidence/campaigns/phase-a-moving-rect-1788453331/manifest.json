@@ -1,0 +1,4 @@
+{
+  "method": "independent reference painter hash",
+  "reference": "frame(b): painter box180 over x in [100+2b,300+2b) rows<100"
+}

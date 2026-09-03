@@ -1,0 +1,17 @@
+{
+  "vole_size_bytes": 2692,
+  "vole_sha256": "16e203872d7f2a69c70c930d9f63977b4dfa806a8534f1f382d394d32e565396",
+  "frames": 101,
+  "frames_court": 101,
+  "width": 1920,
+  "height": 1080,
+  "raw_bytes_all_frames": 209433600,
+  "raw_single_frame_bytes": 2073600,
+  "raw_over_vole_x": 77798.5,
+  "frame0000_matches_reference": true,
+  "frame0100_matches_reference": true,
+  "frame0000_sha256": "21e2dc99bfbf154185094092a9635fa9c890e4041552fc46ac273905a3de3684",
+  "frame0100_sha256": "17f78739e7f1810df3f3c630b554fcd75dc551c7b7277c144731baf666fe6765",
+  "expected_frame0000_sha256": "21e2dc99bfbf154185094092a9635fa9c890e4041552fc46ac273905a3de3684",
+  "expected_frame0100_sha256": "17f78739e7f1810df3f3c630b554fcd75dc551c7b7277c144731baf666fe6765"
+}
