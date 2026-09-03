@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase D sealed (see git log)
-**Current phase:** D (2D COPY_RECT/MOVE_RECT) — SEALED. Next: Phase F (native rANS entropy floor).
+**Current head:** Phase F sealed (see git log)
+**Current phase:** F (native rANS entropy floor) — SEALED. Next: Phase G (exhaustive inverse-proceduralization court).
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
 
 ## Completed (measured, courted, sealed)
@@ -19,7 +19,16 @@ content→id reuse registry, and the unchanged-state lane; static court confirms
 Phase C: persistent sparse overlay + strict-sorted SPARSE patch; blink court
 materializes 65 exact frames from a 1 820 B stream (raw 14.98 MB).*
 
-Phases A–D are SEALED.
+Phases A–F are SEALED.
+
+Phase F: native deterministic order-0 byte rANS coder owned in-crate
+(`src/rans.rs`; scale_bits=14, STATE_L=2^23, per-symbol x_max renorm, LIFO
+decode), deterministic largest-remainder model normalization (512 B inline
+model), RAW-fallback accounting (RANS iff model+encoded < raw). Byte parity +
+bidirectional cross-decode vs the `ryg-rans-rs` oracle over an adversarial
+corpus; hostile length/truncation/corruption courts; measured skew 59×,
+single-symbol 499×, uniform→RAW. Evidence + receipt
+(`evidence/campaigns/phase-f-…` / `docs/phase-f.md`).
 
 Phase D: a COPY_RECT/MOVE_RECT frame-referencing op at dependency depth 1 with
 canonical snapshot-copy + clipping. Oracle-exact 96×96 wrap-scroll court (two
@@ -37,9 +46,11 @@ integrity gates asserted typed. Court/Hostile tests, `cargo fmt/check/clippy
 
 ## In progress
 
-Phase F — native rANS entropy floor (deterministic coder owned by the crate:
-state width, frequency normalization, symbol order, renormalization, endianness,
-RAW fallback), then Phase G exhaustive inverse-proceduralization court.
+Phase G — exhaustive inverse-proceduralization: a raster encoder that tests
+RAW, FILL, UNCHANGED, EXACT_REF, SPARSE, COPY_RECT, TRANSLATION and
+RANS_RESIDUAL candidates, materializing each, building the exact residual,
+and picking the complete-cost winner (oracle); the rANS floor from Phase F is
+the RANS_RESIDUAL payload primitive.
 
 ## Correct, decided, waiting
 
@@ -59,13 +70,13 @@ letters P0–P16 of §61 fold into these gates with explicit mechanisms, e.g. P0
 RAW = our v1 RAW/object base, P4 unchanged = Phase B lane, P5 sparse = Phase C,
 P6 COPY_RECT = Phase D.)
 
-Concrete **next** step from this commit: Phase F — implement a native,
-deterministic rANS (or equivalent) entropy coder owned by the crate (state
-width, frequency normalization, symbol order, renormalization, endianness,
-model serialization, corruption handling) with a RAW fallback under a declared
-accounting policy; then use it as the residual/raw-payload floor for Phase G's
-exhaustive inverse-proceduralization court. Seal each with campaign + receipt
-exactly as Phases A–D were.
+Concrete **next** step from this commit: Phase G — build the exhaustive raster
+inverse-proceduralizer: for each region/frame evaluate candidate families
+(RAW, FILL, UNCHANGED, EXACT_REF/object reuse, SPARSE, COPY_RECT, integer
+TRANSLATION, RANS_RESIDUAL), validate every candidate through the normative
+materializer with an exact residual, and select by complete persisted-byte
+cost under the typed accounting model; seal with oracle-regret campaign and
+receipt exactly as Phases A–F were.
 
 ## Failures / uncertainty
 

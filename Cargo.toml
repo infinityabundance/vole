@@ -17,8 +17,11 @@ categories = ["multimedia::video", "compression"]
 [dependencies]
 blake3 = "1"
 
-# dev-dependencies used to reduce golden/hash check boilerplate.
+# dev-dependencies: test-only oracle for byte parity courts. The normative
+# coder is owned in-crate (src/rans.rs); ryg-rans-rs is never linked into
+# normative decode and is not a runtime dependency.
 [dev-dependencies]
+ryg-rans-rs = "0.5"
 
 [profile.release]
 opt-level = 3

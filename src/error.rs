@@ -74,6 +74,15 @@ pub enum VoleError {
     /// The declared integrity hash did not match the recomputed digest.
     IntegrityMismatch,
 
+    /// An entropy decoder needed a renormalization byte but the payload ended
+    /// (overread past the declared entropy stream).
+    EntropyOverread,
+
+    /// An entropy payload was structurally corrupt: an invalid model, a
+    /// cumulative slot outside every symbol partition, or an arithmetic
+    /// inconsistency that cannot be a canonical stream.
+    EntropyCorrupt,
+
     /// The materializer encounter satisfied a limit that bounds an individual
     /// procedural step (fill/object/instance work budget).
     MaterializationBudgetExceeded,
@@ -119,6 +128,15 @@ impl fmt::Display for VoleError {
             Self::LengthMismatch => write!(f, "declared payload length disagrees with content"),
             Self::OutOfBounds => write!(f, "operation wrote outside its declared bounds"),
             Self::IntegrityMismatch => write!(f, "declared integrity hash does not match digest"),
+            Self::EntropyOverread => {
+                write!(
+                    f,
+                    "entropy stream ended before renormalization could complete"
+                )
+            }
+            Self::EntropyCorrupt => {
+                write!(f, "entropy stream or model is structurally corrupt")
+            }
             Self::MaterializationBudgetExceeded => {
                 write!(f, "procedural materialization step exceeded its bound")
             }

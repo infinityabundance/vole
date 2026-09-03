@@ -1,0 +1,3 @@
+{
+  "command": "cargo run --quiet --example rans_proof"
+}

@@ -1,0 +1,30 @@
+{
+  "normative": {
+    "scale_bits": 14,
+    "model_total": 16384,
+    "state_l": 8388608,
+    "model_serialized_bytes": 512
+  },
+  "skew": {
+    "n": 262144,
+    "kind": "RANS",
+    "block_bytes": 4458,
+    "ratio": 58.8,
+    "verify_decode_equal": true
+  },
+  "single_symbol": {
+    "n": 262144,
+    "kind": "RANS",
+    "block_bytes": 525,
+    "ratio": 499.32,
+    "verify_decode_equal": true
+  },
+  "uniform": {
+    "n": 262144,
+    "kind": "RAW",
+    "block_bytes": 262153,
+    "verify_decode_equal": true
+  },
+  "oracle": "byte parity + cross-decode vs ryg-rans-rs asserted in tests/phase_f.rs (all pass)",
+  "policy": "RANS chosen iff model(512B)+encoded < raw; uniform falls back to RAW"
+}

@@ -65,6 +65,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
+name = "ryg-rans-rs"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c0596ad941ac355ca260f4e29658d4b60b4e92133fbcc5578d63e679ef691e8"
+dependencies = [
+ "ryg-rans-rs-core",
+]
+
+[[package]]
+name = "ryg-rans-rs-core"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "149b0e27a909dba97538f9bd5137624c230a9f8d9635cdfc635cce7e4d2865e1"
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -75,4 +90,5 @@ name = "vole-video"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "ryg-rans-rs",
 ]

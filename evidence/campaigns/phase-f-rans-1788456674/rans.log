@@ -1,0 +1,4 @@
+rans: scale_bits=14 total=16384 state_l=8388608 model_bytes=512
+skew: n=262144 kind=RANS block=4458B ratio=58.80 verify=true
+single-symbol: n=262144 kind=RANS block=525B ratio=499.32 verify=true
+uniform: n=262144 kind=RAW block=262153B verify=true

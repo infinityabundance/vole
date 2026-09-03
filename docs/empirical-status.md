@@ -19,8 +19,8 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Unchanged-state lane (zero-transition intervals) | ADOPTED | Phase B static court: 13.0 B/frame amortized |
 | Sparse mutation (persistent overlay; strict-sorted patch) | ADOPTED | Phase C blink court: 1 820 B vs 14.98 MB (8 229×) |
 | COPY_RECT / MOVE_RECT (prior-frame snapshot compositor) | ADOPTED | Phase D: wrap-scroll court oracle-exact; hostile pass (`tests/phase_d.rs`) |
+| rANS / entropy floor (owned byte rANS, RAW fallback policy) | ADOPTED | Phase F: byte parity vs `ryg-rans-rs` oracle; skew 59×, uniform→RAW (`tests/phase_f.rs`) |
 | Integer translation as persistent state | PARTIAL (Phase-A SET_POSITION) | court; trajectory form PROPOSED |
-| rANS / entropy floor | PROPOSED | pending |
 | Trajectory collapse | PROPOSED | pending |
 | Palettes | PROPOSED | pending |
 | Affine / global state | PROPOSED | pending |

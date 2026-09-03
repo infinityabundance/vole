@@ -33,6 +33,7 @@ pub mod limits;
 pub mod materialize;
 pub mod object;
 pub mod pixel;
+pub mod rans;
 pub mod state;
 pub mod time;
 pub mod transition;
