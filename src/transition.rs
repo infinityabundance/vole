@@ -7,6 +7,7 @@
 //! replay — stays unchanged.
 
 use crate::{
+    affine::AffineParams,
     error::VoleError,
     object::{Object, ObjectId},
     state::{InstanceId, PaletteId, State},
@@ -70,6 +71,14 @@ pub enum Transition {
     BindPalette {
         instance: InstanceId,
         palette: PaletteId,
+    },
+    /// Attach a canonical Q8 fixed-point affine placement to an instance
+    /// (Phase L): the object paints through the affine source map instead of
+    /// the plain `(x, y)` placement. The identity affine deactivates; affine,
+    /// velocity, and trajectory state on one instance are mutually exclusive.
+    SetAffine {
+        id: InstanceId,
+        params: AffineParams,
     },
     /// Sparse overlay patch: authoritative pixel set above all instances.
     /// Points must be canonical sorted; each applied pixel persists until
@@ -148,6 +157,7 @@ impl Transition {
             Transition::BindPalette { instance, palette } => {
                 state.bind_palette(*instance, *palette)
             }
+            Transition::SetAffine { id, params } => state.set_affine(*id, *params),
             Transition::PatchSparse { points } => state.overlay_batch(points),
             // Frame-referencing ops act on the decode canvas, not on the
             // painter State, so they are no-ops here. Their bounds geometry is
@@ -181,6 +191,7 @@ impl Transition {
             Transition::SetPalette { .. } => "set_palette",
             Transition::PatchPalette { .. } => "patch_palette",
             Transition::BindPalette { .. } => "bind_palette",
+            Transition::SetAffine { .. } => "set_affine",
             Transition::PatchSparse { .. } => "patch_sparse",
             Transition::CopyRect { .. } => "copy_rect",
             Transition::MoveRect { .. } => "move_rect",

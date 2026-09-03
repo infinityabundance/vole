@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase K sealed (see git log)
-**Current phase:** K (variable regions) — SEALED. Next: Phase L (affine/global state).
+**Current head:** Phase L sealed (see git log)
+**Current phase:** L (affine/global state) — SEALED. Next: Phase M (transform residual).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -112,10 +112,31 @@ probe-granularity blindness measured at J 1.036; noise stays RAW (diff gate).
 Receipt + evidence: `docs/phase-k.md`,
 `evidence/campaigns/phase-k-regions-…/`.
 
+Phase L (this head): **bounded fixed-point affine / global state** —
+pan/zoom/rotation/camera-like transforms are procedural *state*, not
+rasters or codec-local block motion (`src/affine.rs`, tag 0x30): a
+`SetAffine` transition attaches a canonical Q8 placement
+`(su, sv) = ((a·x+b·y+c) >> 8, (d·x+e·y+f) >> 8)` (signed `>> 8` = floor;
+no floating point anywhere), integer maps are exact in Q8 and general
+rotation/zoom/pan are Q8 approximations whose exactness gap is closed by the
+residual algebra. Identity deactivates; affine/velocity/trajectory state on
+one instance are mutually exclusive; affines die with their instances; new
+limit `max_affine_work` caps per-materialization affine sample work (typed
+`MaterializationBudgetExceeded` at materialization). Affine painting keeps
+object-kind semantics (fill / raster / bound-palette-index lookup).
+Measured: 320×180 rotating-tile flagship — 81 frames as one object + one
+instance + one `SetAffine`/interval, **42 B/interval** (618× vs raw),
+byte-exact vs an independent incremental painter; the flattening tax of
+re-encoding the same rotation through the raster encoder measured at 7×;
+Q8 30°-rotation approximation + one persistent sparse correction reproduces
+a float-rendered target byte-for-byte (58 of 4 096 tile px — the Q8
+camera-map gap is a small edge set); affine over palette-index and fill
+objects exact; hostile wire + work-budget courts typed. Receipt + evidence:
+`docs/phase-l.md`, `evidence/campaigns/phase-l-affine-…/`.
+
 ## In progress
 
-Phase L — bounded fixed-point affine / global state (pan, zoom, rotation,
-camera-like transforms) with residual closure of the exactness gap.
+(none — Phase L sealed; Phase M is next)
 
 ## Correct, decided, waiting
 
@@ -134,21 +155,26 @@ content-wide rebases still pay one whole-canvas declaration (regions serve
 localized change; native ingest is Phase Q); region *instances persist* —
 long-horizon instance retirement and region+residual composites (dense
 region with sparse dust) are Phase-O re-optimization surface; the
-raster-origin encoder has no palette/trajectory *discovery* family yet — the
-measured flattening tax is 174× (palette) and trajectory collapse is a
-post-pass (Phase O `vole optimize`); the fixed-heuristic region probe is
-blind to granularity (measured J 1.036 on the reuse court); stable residuals
-pay one-shot per frame until Phase O promotes them; DSFB can miss a cheaper
-family with no slew/regime signal for at most one small interval (Phase H
-receipt); trajectory descriptors only pay from runs of ≥ 3 frames (Phase I
-receipt); active zero-velocity trajectories cost more than the unchanged lane
-(Phase I); palettes must be set before they are bound, and index validity is
-enforced at materialization (Phase J).
+raster-origin encoder has no palette/trajectory/affine *discovery* family yet
+— the measured flattening taxes are 174× (palette), 7× (rotation/affine on
+the 160×160 court), and trajectory collapse is a post-pass (Phase O `vole
+optimize`); the fixed-heuristic region probe is blind to granularity
+(measured J 1.036 on the reuse court); stable residuals pay one-shot per
+frame until Phase O promotes them; DSFB can miss a cheaper family with no
+slew/regime signal for at most one small interval (Phase H receipt);
+trajectory descriptors only pay from runs of ≥ 3 frames (Phase I receipt);
+active zero-velocity trajectories cost more than the unchanged lane (Phase
+I); palettes must be set before they are bound, and index validity is
+enforced at materialization (Phase J); an affine placement scans the whole
+canvas, so many concurrent affine instances are capped by
+`max_affine_work` (8 full canvases) rather than per-instance raster cost
+(Phase L).
 
 ## Frozen (format decisions)
 
 v1 `.vole` grammar (docs/format-v1.md), materializer painter semantics
-(including palette-index resolution), time model (explicit advances only —
-never implicit stepping), limits profile 1, integrity trailer, rANS
-normative constants (docs/phase-f.md). v1 continues to *extend* per sealed
-phase (tags 0x21–0x2f) with old streams re-parsed unchanged.
+(including palette-index resolution and the Phase-L affine source map),
+time model (explicit advances only — never implicit stepping), limits
+profile 1, integrity trailer, rANS normative constants (docs/phase-f.md). v1
+continues to *extend* per sealed phase (tags 0x21–0x30) with old streams
+re-parsed unchanged.

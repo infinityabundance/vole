@@ -4,6 +4,7 @@
 //! equality with the materializer is meaningful evidence).
 
 use crate::{
+    affine::{AffineParams, AFFINE_SCALE},
     decoder, encoder,
     error::VoleError,
     format::ParsedStream,
@@ -1199,6 +1200,256 @@ fn palette_reference_painter(
             }
             let idx = indices[src_row + sx as usize];
             out[dst_row + cx as usize] = entries[idx as usize];
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Phase L — bounded fixed-point affine placement courts
+// ---------------------------------------------------------------------------
+
+/// Affine parameters rotating content of local center `(u0, v0)` about the
+/// destination center `(cx, cy)` by `k` quarter turns (multiples of 90°, k
+/// mod 4). Quarter turns are exact in Q8 (integer coefficients).
+pub fn quarter_turn_params(k: i64, u0: i64, v0: i64, cx: i64, cy: i64) -> AffineParams {
+    let k = k.rem_euclid(4);
+    let (m00, m01, m10, m11) = match k {
+        0 => (1i64, 0i64, 0i64, 1i64),
+        1 => (0, 1, -1, 0),
+        2 => (-1, 0, 0, -1),
+        _ => (0, -1, 1, 0),
+    };
+    AffineParams {
+        a: AFFINE_SCALE * m00,
+        b: AFFINE_SCALE * m01,
+        c: AFFINE_SCALE * (u0 - m00 * cx - m01 * cy),
+        d: AFFINE_SCALE * m10,
+        e: AFFINE_SCALE * m11,
+        f: AFFINE_SCALE * (v0 - m10 * cx - m11 * cy),
+    }
+}
+
+/// Affine parameters for an integer `2×` zoom about `(cx, cy)` of content
+/// with local center `(u0, v0)`. Exact in Q8 (coefficient 128 = 1/2 px per
+/// dest px).
+pub fn zoom2_params(u0: i64, v0: i64, cx: i64, cy: i64) -> AffineParams {
+    let a = AFFINE_SCALE / 2;
+    let e = AFFINE_SCALE / 2;
+    AffineParams {
+        a,
+        b: 0,
+        c: AFFINE_SCALE * u0 - a * cx,
+        d: 0,
+        e,
+        f: AFFINE_SCALE * v0 - e * cy,
+    }
+}
+
+/// Affine parameters for a plain placement at content top-left `(px, py)`
+/// panned by `pan_num`/`pan_den` destination pixels (Q8 translation).
+pub fn pan_params(px: i64, py: i64, pan_num: i64, pan_den: i64) -> AffineParams {
+    let p = AFFINE_SCALE * pan_num / pan_den;
+    AffineParams {
+        a: AFFINE_SCALE,
+        b: 0,
+        c: -AFFINE_SCALE * px + p,
+        d: 0,
+        e: AFFINE_SCALE,
+        f: -AFFINE_SCALE * py,
+    }
+}
+
+/// Phase-L direct-procedural court: one tile object whose placement is
+/// affine-mapped per interval (rotation / zoom / sub-pixel pan). Frame 0 is
+/// the plain placement; every later frame applies one `SetAffine`. The
+/// reference raster is an **independent** painter with a structurally
+/// different loop (per-row incremental accumulation vs per-pixel products),
+/// so a shared sampling bug cannot mask a mismatch.
+pub struct AffineCourt {
+    /// Canvas width / height.
+    pub width: u32,
+    pub height: u32,
+    /// Canvas background sample.
+    pub background: u8,
+    /// Tile object geometry and content (row-major, non-uniform).
+    pub tile_w: u32,
+    pub tile_h: u32,
+    pub content: Vec<u8>,
+    /// Plain placement of the tile at frame 0.
+    pub plain_x: i64,
+    pub plain_y: i64,
+    /// Object / instance ids.
+    pub object_id: u32,
+    pub instance_id: u32,
+    /// Affine placement applied at frames 1..=intervals (length ==
+    /// intervals). The identity affine is allowed (returns to plain mode).
+    pub params: Vec<AffineParams>,
+    /// Number of intervals (frames == intervals + 1).
+    pub intervals: u64,
+}
+
+impl AffineCourt {
+    /// Validate the court parameters (geometry, count, coefficients).
+    pub fn check(&self) -> Result<(), VoleError> {
+        if self.content.len() as u64 != u64::from(self.tile_w) * u64::from(self.tile_h) {
+            return Err(VoleError::ApiConstraint("tile content/geometry mismatch"));
+        }
+        if self.params.len() as u64 != self.intervals {
+            return Err(VoleError::ApiConstraint(
+                "one affine parameter set per interval",
+            ));
+        }
+        for p in &self.params {
+            p.check()?;
+        }
+        Ok(())
+    }
+
+    /// Canonical `.vole` bytes: one tile object, one instance at the plain
+    /// placement, then one `SetAffine` per interval.
+    pub fn vole(&self) -> Result<Vec<u8>, VoleError> {
+        self.check()?;
+        let obj = Object::raster(self.tile_w, self.tile_h, self.content.clone())?;
+        let inst = Instance {
+            id: InstanceId(self.instance_id),
+            object_id: ObjectId(self.object_id),
+            x: self.plain_x,
+            y: self.plain_y,
+        };
+        let mut timeline = Vec::with_capacity(self.intervals as usize);
+        for (k, p) in self.params.iter().enumerate() {
+            timeline.push((
+                (k + 1) as u64,
+                vec![Transition::SetAffine {
+                    id: InstanceId(self.instance_id),
+                    params: *p,
+                }],
+            ));
+        }
+        encoder::encode_stream(
+            self.width,
+            self.height,
+            self.background,
+            &[(self.object_id, obj)],
+            &[inst],
+            &timeline,
+        )
+    }
+
+    /// Independent reference `.raw` frames.
+    pub fn reference_raw(&self) -> Result<Vec<u8>, VoleError> {
+        self.check()?;
+        let mut raw = Vec::new();
+        // Frame 0: plain placement.
+        raw.extend(affine_reference_painter(
+            self.width,
+            self.height,
+            self.background,
+            &self.content,
+            self.tile_w,
+            self.tile_h,
+            self.plain_x,
+            self.plain_y,
+            None,
+        ));
+        for p in &self.params {
+            raw.extend(affine_reference_painter(
+                self.width,
+                self.height,
+                self.background,
+                &self.content,
+                self.tile_w,
+                self.tile_h,
+                self.plain_x,
+                self.plain_y,
+                Some(*p),
+            ));
+        }
+        Ok(raw)
+    }
+
+    /// Materialize and byte-exact verify against the independent reference.
+    pub fn materialize_and_verify(&self) -> Result<Vec<Canvas>, VoleError> {
+        let parsed = decoder::decode_bytes(&self.vole()?)?;
+        let frames = decoder::materialize_all(&parsed)?;
+        let mut got = Vec::new();
+        for c in &frames {
+            got.extend_from_slice(c.as_slice());
+        }
+        if got != self.reference_raw()? {
+            return Err(VoleError::ApiConstraint(
+                "affine court diverged from reference",
+            ));
+        }
+        Ok(frames)
+    }
+
+    /// Number of materializable frames.
+    pub fn frame_count(&self) -> u64 {
+        1 + self.intervals
+    }
+
+    /// Total raw raster bytes of the canonical frame sequence.
+    pub fn raw_bytes_all(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height) * self.frame_count()
+    }
+}
+
+/// Independent affine painter: fill `bg`, then either blit the tile at its
+/// plain placement or, when `mapped` is given, sample every destination pixel
+/// through the canonical Q8 source map with per-row incremental accumulation.
+#[allow(clippy::too_many_arguments)] // 9 ordered painter params (geometry + content + placement)
+fn affine_reference_painter(
+    width: u32,
+    height: u32,
+    bg: u8,
+    content: &[u8],
+    tile_w: u32,
+    tile_h: u32,
+    plain_x: i64,
+    plain_y: i64,
+    mapped: Option<AffineParams>,
+) -> Vec<u8> {
+    let cw = width as usize;
+    let mut out = vec![bg; cw * height as usize];
+    match mapped {
+        None => {
+            for sy in 0..tile_h as i64 {
+                let cy = plain_y + sy;
+                if cy < 0 || cy >= i64::from(height) {
+                    continue;
+                }
+                let src_row = sy as usize * tile_w as usize;
+                let dst_row = cy as usize * cw;
+                for sx in 0..tile_w as i64 {
+                    let cx = plain_x + sx;
+                    if cx < 0 || cx >= i64::from(width) {
+                        continue;
+                    }
+                    out[dst_row + cx as usize] = content[src_row + sx as usize];
+                }
+            }
+        }
+        Some(p) => {
+            let tw = i64::from(tile_w);
+            let th = i64::from(tile_h);
+            for dy in 0..height as i64 {
+                // Per-row base then per-pixel increments (different arithmetic
+                // shape from the materializer's direct products, same value).
+                let mut nux = p.b * dy + p.c;
+                let mut nvx = p.e * dy + p.f;
+                for dx in 0..width as i64 {
+                    let su = nux >> crate::affine::AFFINE_SHIFT;
+                    let sv = nvx >> crate::affine::AFFINE_SHIFT;
+                    nux += p.a;
+                    nvx += p.d;
+                    if su < 0 || sv < 0 || su >= tw || sv >= th {
+                        continue;
+                    }
+                    out[dy as usize * cw + dx as usize] = content[(sv * tw + su) as usize];
+                }
+            }
         }
     }
     out

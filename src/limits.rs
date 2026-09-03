@@ -71,6 +71,11 @@ pub struct Limits {
     /// stream cannot grow the palette table without bound through many
     /// `SetPalette` payloads.
     pub max_palettes: u32,
+    /// Cumulative per-materialization sample budget for affine placements
+    /// (Phase L): each affine instance paints by scanning the whole canvas,
+    /// so many affine instances must not multiply unbounded per-frame work.
+    /// Expressed in canvas samples; default 8 full-canvas affine paints.
+    pub max_affine_work: u64,
 }
 
 impl Default for Limits {
@@ -98,6 +103,7 @@ impl Default for Limits {
             max_trajectory_work: 1 << 22,
             max_palette_entries: 256,
             max_palettes: 4096,
+            max_affine_work: 8 * (1920 * 1080),
         }
     }
 }

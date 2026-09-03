@@ -84,6 +84,7 @@ pub(crate) const TR_ADVANCE_TRAJECTORIES: u8 = 0x2c;
 pub(crate) const TR_SET_PALETTE: u8 = 0x2d;
 pub(crate) const TR_PATCH_PALETTE: u8 = 0x2e;
 pub(crate) const TR_BIND_PALETTE: u8 = 0x2f;
+pub(crate) const TR_SET_AFFINE: u8 = 0x30;
 
 /// Maximum representable absolute coordinate on the wire.
 pub(crate) const MAX_COORD: i64 = 1 << 24;
@@ -538,6 +539,26 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                             let palette = crate::state::PaletteId(r.pull::<u32>()?);
                             Transition::BindPalette { instance, palette }
                         }
+                        TR_SET_AFFINE => {
+                            let id = InstanceId(r.pull::<u32>()?);
+                            let coeff = |r: &mut ByteReader<'_>| -> Result<i64, VoleError> {
+                                let v = i64::from(r.pull::<i32>()?);
+                                if v.abs() > MAX_COORD {
+                                    return Err(VoleError::NonCanonicalEncoding);
+                                }
+                                Ok(v)
+                            };
+                            let params = crate::affine::AffineParams {
+                                a: coeff(&mut r)?,
+                                b: coeff(&mut r)?,
+                                c: coeff(&mut r)?,
+                                d: coeff(&mut r)?,
+                                e: coeff(&mut r)?,
+                                f: coeff(&mut r)?,
+                            };
+                            params.check()?;
+                            Transition::SetAffine { id, params }
+                        }
                         TR_COPY_RECT | TR_MOVE_RECT => {
                             let is_copy = t2 == TR_COPY_RECT;
                             let src_x = i64::from(r.pull::<i32>()?);
@@ -915,6 +936,21 @@ fn write_transition(sink: &mut ByteSink, t: &Transition) -> Result<(), VoleError
             sink.byte(TR_BIND_PALETTE)?;
             sink.push(instance.0)?;
             sink.push(palette.0)
+        }
+        Transition::SetAffine { id, params } => {
+            params.check()?;
+            let coeff = |sink: &mut ByteSink, v: i64| -> Result<(), VoleError> {
+                let w = i32::try_from(v).map_err(|_| VoleError::NonCanonicalEncoding)?;
+                sink.push(w)
+            };
+            sink.byte(TR_SET_AFFINE)?;
+            sink.push(id.0)?;
+            coeff(sink, params.a)?;
+            coeff(sink, params.b)?;
+            coeff(sink, params.c)?;
+            coeff(sink, params.d)?;
+            coeff(sink, params.e)?;
+            coeff(sink, params.f)
         }
         Transition::ClearInstances => sink.byte(TR_CLEAR_INSTANCES),
         Transition::ClearOverlay => sink.byte(TR_CLEAR_OVERLAY),

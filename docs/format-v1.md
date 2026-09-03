@@ -128,6 +128,25 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
     palette is `UnknownPalette` (palettes are set before they are bound).
     Palette-index objects painted by the instance resolve through the bound
     palette.
+  * `0x30 iid:u32 a:i32 b:i32 c:i32 d:i32 e:i32 f:i32` — attach a canonical
+    Q8 fixed-point affine placement to instance `iid` (Phase L). The object
+    paints through the source map
+    `(su, sv) = ((a·x+b·y+c) >> 8, (d·x+e·y+f) >> 8)` (signed `>> 8` is
+    floor, the canonical rounding) instead of the plain `(x, y)` placement;
+    every canvas pixel whose source sample lies inside the object rectangle
+    is overwritten, and pixels whose source falls outside it show the
+    underlying canvas (lower instances or the background). An overflowing
+    accumulation is `ArithmeticOverflow`. The object kind semantics are
+    identical to the plain placement: a fill paints its value, a raster
+    paints its sample, and a palette-index object resolves each sampled
+    index through the palette bound to the instance. All six coefficients
+    are Q8 (`1` source pixel = 256 units), each `|·| ≤ 2^24`; the identity
+    affine (`a = e = 256`, rest `0`) deactivates the placement and is never
+    stored. While an affine is attached the plain placement `(x, y)` is
+    dormant (the affine's translation lives in `c`/`f`) and is restored on
+    deactivation. Affine, velocity (`0x26`), and trajectory (`0x2b`) state on
+    one instance are mutually exclusive. Per-materialization affine sample
+    work is capped by `Limits.max_affine_work`.
 * `|x|,|y|,|vx|,|vy| ≤ 2^24`; for copy ops `w,h ≠ 0` and `w*h ≤ max_copy_area`
   ⇒ else a typed error.
 * Cumulative translation-advance work (`moving_count` summed over every

@@ -34,7 +34,9 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Variable regions (64→32→16→8 granularity, rectangular bounding boxes) in the inverse encoder | ADOPTED | Phase K: localized-change flagship 1920×1080 — 40 region frames, **zero whole-frame rebases** after frame 0 (26× vs raw); exact-ref region reuse with zero declarations (reuse floor 30 B/interval); noise stays RAW (diff gate) (`tests/phase_k.rs`) |
 | Region reuse by exact content identity | ADOPTED | Phase K: alternating glyph area served by two objects reused across 35 frames with 0 declaration bytes (`tests/phase_k.rs`) |
 | DSFB governance of the region family | ADOPTED (non-normative) | Phase K: reuse court J_dsfb == J_exhaustive byte-identical at N = 0.378×; fixed-heuristic probe granularity blindness measured at J 1.036 |
-| Affine / global state | PROPOSED | pending |
+| Bounded fixed-point affine / global state (per-instance Q8 placement; pan/zoom/rotation/camera-like as state, not rasters) | ADOPTED | Phase L: tag 0x30; 320×180 rotating-tile flagship — 81 frames as one object + one instance + one `SetAffine`/interval, exact vs an independent incremental painter; affine state 20× smaller than raw and far smaller than re-encoding the same visual frames through the raster encoder; hostile wire + work-budget courts (`tests/phase_l.rs`) |
+| Affine residual closure (`F = M(state) ⊕_ρ R` for a Q8 camera approximation) | ADOPTED | Phase L: Q8 30°-rotation approx vs a float-rendered target — the gap is a bounded edge set (<1 500 of 4 096 tile px) closed exactly by one persistent sparse correction; stream decodes byte-identical to the float target (`tests/phase_l.rs`) |
+| Affine over palette-index / fill objects | ADOPTED | Phase L: sampled index resolution through the bound palette and uniform-value fills under Q8 maps, byte-exact vs independent references (`tests/phase_l.rs`) |
 | Transform residual | PROPOSED | pending |
 | Procedural generators | PROPOSED | pending |
 | Partial materialization (tile/rect) | PROPOSED | pending |

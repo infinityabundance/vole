@@ -39,6 +39,7 @@ tags (`docs/format-v1.md`):
 | G | `Residual` (0x2a) | per-frame residual block (Phase-F coded payload) applied to the canvas in op order — the `⊕_ρ` residual algebra, one-shot, stateless |
 | I | `SetTrajectory` (0x2b) + `AdvanceTrajectories` (0x2c) | per-instance bounded parametric trajectory program (Linear / Accel segments) stepped once per advance; empty program deactivates; exclusive with translation state |
 | J | `SetPalette` (0x2d) / `PatchPalette` (0x2e) / `BindPalette` (0x2f) + palette-table record (0x06) + palette-binding checkpoint (0x08) + palette-index object (0x05) | mutable palette state; palette-index planes render through per-instance bound palettes |
+| L | `SetAffine` (0x30) | attach a canonical Q8 fixed-point affine placement to one instance (pan / zoom / rotation / camera-like transform as persistent state; see semantics below) |
 
 Because Phase A declares all objects before the single checkpoint, interval
 groups in v1 contain only `CreateInstance`/`SetPosition`. Later phases broaden
@@ -102,6 +103,45 @@ state, color animation (accent blinking, full color drift) is a *tiny state
 mutation* — `24–28 B/interval` on the Phase-J courts — never a raster or
 index-plane rewrite. Palette content at rest costs the ordinary 13 B/frame
 unchanged lane.
+
+## Phase-L affine placement semantics (normative, integer, exact)
+
+An **affine placement** (tag `0x30`) replaces the plain `(x, y)` placement of
+one instance with a canonical fixed-point 2D map: destination pixel `(x, y)`
+samples the object at
+
+```text
+(su, sv) = ((a·x + b·y + c) >> 8, (d·x + e·y + f) >> 8)
+```
+
+where `a..f` are Q8 coefficients (one source pixel = 256 units; the signed
+`>> 8` is floor division — the canonical rounding). No floating point exists
+anywhere in the normative path. The sample inside the object rectangle paints
+it; a sample outside leaves the underlying canvas (lower instances or the
+background); an overflowing accumulation is `ArithmeticOverflow` (typed,
+never a wrap). Object-kind semantics are unchanged: fill value, raster
+sample, or bound-palette-entry lookup for index objects.
+
+* whole-pixel translation, integer multiples of 90° rotation, and integer
+  zooms are *exact* in Q8 (integer coefficients); general rotation/zoom/pan
+  parameters are Q8 approximations whose exactness gap is closed by the
+  residual algebra (`F = M(state) ⊕_ρ R`, §22) — the Phase-L court closes a
+  30° approximation exactly with a bounded sparse correction;
+* the identity affine (`a = e = 256`, rest `0`) deactivates and is never
+  stored; while attached, the plain placement `(x, y)` is dormant (the
+  affine's translation lives in `c`/`f`) and is restored on deactivation;
+* affine, velocity (`0x26/0x27`), and trajectory (`0x2b/0x2c`) state on one
+  instance are mutually exclusive (attaching one removes the others);
+  affines die with their instances (`0x28`);
+* painting scans the whole canvas, so cumulative per-materialization affine
+  sample work is capped by `Limits.max_affine_work` (typed
+  `MaterializationBudgetExceeded`; parse stays cheap — the bound bites only
+  where the work would actually happen).
+
+A Q8 camera-like move is therefore *state*, not a sequence of rasters: the
+Phase-L rotating-tile flagship stores 81 frames of rotation as one object +
+one instance + one `SetAffine` per interval, and every frame is byte-verified
+against an independent painter with a structurally different sampling loop.
 
 ## §/Semantics that MUST be deterministic
 

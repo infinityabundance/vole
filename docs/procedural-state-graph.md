@@ -33,15 +33,21 @@ Later phases added to the domain model (`T_t`, transforms/trajectories; `M_t`, m
   palette-index objects — immutable one-byte index planes — render through
   the entries of the palette bound to the painting instance, so `M_t` is now
   real state: `G_t` carries `palettes` and `bindings` alongside the object
-  table, instances, velocities, and trajectories).
+  table, instances, velocities, and trajectories);
+* per-instance canonical Q8 fixed-point **affine placements** (Phase L: `T_t`
+  grows a real transform — `src/affine.rs` maps every destination pixel
+  through `((a·x+b·y+c) >> 8, (d·x+e·y+f) >> 8)`, integer everywhere; an
+  instance with an affine paints through it instead of its plain `(x, y)`
+  placement, the identity affine deactivates, and affine/velocity/trajectory
+  state on one instance are mutually exclusive).
 
 ## Immutability vs mutation
 
 * **Objects never change** once declared (`State::declare_object`).
 * **Instances change** only through explicit transitions:
   `set_position`, `create_instance`, `set_velocity`/`advance_translations`
-  (Phase E), `set_trajectory`/`advance_trajectories` (Phase I); the Phase-B
-  unchanged lane handles statics.
+  (Phase E), `set_trajectory`/`advance_trajectories` (Phase I), `set_affine`
+  (Phase L); the Phase-B unchanged lane handles statics.
 
 Persistent identity is *exact*: no object or instance id is recycled and no
 "looks similar" trick grants reuse. Later phases add BLAKE3 content

@@ -15,6 +15,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
+    affine::AffineParams,
     error::VoleError,
     object::{Object, ObjectId},
     time::Interval,
@@ -141,6 +142,12 @@ pub struct State {
     /// palette renders any palette-index object through that palette's
     /// entries. Bindings die with their instances (`ClearInstances`).
     bindings: BTreeMap<InstanceId, PaletteId>,
+    /// Per-instance affine placements (Phase L). An instance with affine
+    /// state paints its object through the canonical Q8 source map instead of
+    /// the plain `(x, y)` placement. Affine, velocity, and trajectory state
+    /// on one instance are mutually exclusive (attaching one removes the
+    /// others); affines die with their instances.
+    affines: BTreeMap<InstanceId, AffineParams>,
     /// Which interval this state snapshot was produced for (diagnostics and
     /// checkpoint anchoring; a fresh state is interval ZERO).
     interval: Interval,
@@ -157,6 +164,7 @@ impl Default for State {
             trajectories: BTreeMap::new(),
             palettes: BTreeMap::new(),
             bindings: BTreeMap::new(),
+            affines: BTreeMap::new(),
             interval: Interval::ZERO,
         }
     }
@@ -278,13 +286,14 @@ impl State {
     /// Remove every live instance. Paint order is cleared and instance ids are
     /// freed for reuse (Phase G: full-content replacement). Objects stay
     /// declared; the background, overlay, and palette table are untouched.
-    /// Velocities, trajectories, and palette bindings die with their
-    /// instances.
+    /// Velocities, trajectories, palette bindings, and affine placements die
+    /// with their instances.
     pub fn clear_instances(&mut self) {
         self.instances.clear();
         self.velocities.clear();
         self.trajectories.clear();
         self.bindings.clear();
+        self.affines.clear();
     }
 
     /// Remove every persistent overlay point (Phase G: content replacement and
@@ -297,14 +306,15 @@ impl State {
     /// translation is applied once per [`State::advance_translations`], so the
     /// instance's position follows `position(t+1) = position(t) + (vx, vy)`
     /// while the translation is active. A `(0,0)` translation deactivates
-    /// (equivalent to no entry). Translation and trajectory state are
-    /// mutually exclusive: attaching a translation removes any trajectory.
+    /// (equivalent to no entry). Translation, trajectory, and affine state on
+    /// one instance are mutually exclusive: attaching one removes the others.
     /// Setting a translation on an unknown instance is a typed error.
     pub fn set_velocity(&mut self, id: InstanceId, vx: i64, vy: i64) -> Result<(), VoleError> {
         if !self.instances.iter().any(|i| i.id == id) {
             return Err(VoleError::UnknownInstance);
         }
         self.trajectories.remove(&id);
+        self.affines.remove(&id);
         if vx == 0 && vy == 0 {
             self.velocities.remove(&id);
         } else {
@@ -372,8 +382,40 @@ impl State {
         }
         let traj = InstanceTrajectory::start(program).ok_or(VoleError::NonCanonicalEncoding)?;
         self.velocities.remove(&id);
+        self.affines.remove(&id);
         self.trajectories.insert(id, traj);
         Ok(())
+    }
+
+    /// Attach a canonical Q8 affine placement to an instance (Phase L): the
+    /// object paints through the source map `(a·x+b·y+c, d·x+e·y+f) >> 8`
+    /// instead of the plain `(x, y)` placement. The identity affine (plain
+    /// placement) deactivates. Affine, velocity, and trajectory state on one
+    /// instance are mutually exclusive. An unknown instance or an
+    /// out-of-domain coefficient is a typed error.
+    pub fn set_affine(&mut self, id: InstanceId, params: AffineParams) -> Result<(), VoleError> {
+        if !self.instances.iter().any(|i| i.id == id) {
+            return Err(VoleError::UnknownInstance);
+        }
+        params.check()?;
+        self.velocities.remove(&id);
+        self.trajectories.remove(&id);
+        if params.is_identity() {
+            self.affines.remove(&id);
+        } else {
+            self.affines.insert(id, params);
+        }
+        Ok(())
+    }
+
+    /// Affine placement of an instance, if any.
+    pub fn affine(&self, id: InstanceId) -> Option<AffineParams> {
+        self.affines.get(&id).copied()
+    }
+
+    /// Number of instances with an affine placement.
+    pub fn affine_count(&self) -> usize {
+        self.affines.len()
     }
 
     /// Whether the instance carries an active trajectory program.

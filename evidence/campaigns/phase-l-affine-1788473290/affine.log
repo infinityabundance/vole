@@ -1,0 +1,25 @@
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/examples/affine_proof`
+rotate-flag-320x180: frames=81 vole=7547B raw_all=4665600B interval_bytes=3360B set_affine_ops=80 exact=true verify_ms=9.4
+rotation-flattening-160x160: frames=41 affine=5867B raster_encoded=41077B ratio=7x exact=true encode_ms=569
+zoom-pan-320x180: frames=4 vole=4313B exact=true (2x zoom, 0.5px and 1.5px pans)
+residual-closure-30deg-160x160: frames=41 vole=5263B residual_points=58 residual_share_of_tile=0.014 tile_pixels=4096 exact=true note="Q8 approx + sparse correction reproduces the float render exactly"
+   Compiling vole-video v0.7.0 (/mnt/1tb_kingston/vole)
+    Finished `release` profile [optimized] target(s) in 2.41s
+     Running tests/phase_l.rs (target/release/deps/phase_l-5e141991cae6622f)
+
+running 11 tests
+test affine_over_fill_object_materializes_exactly ... ok
+test affine_over_palette_index_object_materializes_exactly ... ok
+test affine_state_semantics_are_typed ... ok
+test affine_stream_accounts_and_roundtrips ... ok
+test affine_wire_hostile_forms_are_typed ... ok
+test integer_zoom_and_subpixel_pan_are_exact ... ok
+test affine_state_matches_reference_under_random_parameters ... ok
+test residual_closes_the_approximation_gap_exactly ... ok
+test quarter_turn_rotation_is_exact_and_periodic ... ok
+test affine_work_budget_is_enforced_at_materialization ... ok
+test affine_state_beats_re_encoding_the_same_frames ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+

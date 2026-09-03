@@ -97,6 +97,7 @@ fn tr_len(tr: &Transition) -> u64 {
         Transition::SetPalette { entries, .. } => 9 + entries.len() as u64,
         Transition::PatchPalette { changes, .. } => 9 + 2 * changes.len() as u64,
         Transition::BindPalette { .. } => 9,
+        Transition::SetAffine { params, .. } => params.wire_bytes(),
         Transition::PatchSparse { points } => 5 + 9 * points.len() as u64,
         Transition::CopyRect { .. } | Transition::MoveRect { .. } => 25,
         Transition::Residual { block } => 5 + block.len() as u64,
@@ -411,6 +412,10 @@ pub fn account_stream(bytes: &[u8]) -> Result<RepresentationCost, VoleError> {
                         0x2f => {
                             r.skip(8)?;
                             cost.transition_bytes += 9;
+                        }
+                        0x30 => {
+                            r.skip(28)?;
+                            cost.transition_bytes += 29;
                         }
                         0x2b => {
                             let _id = r.pull::<u32>()?;

@@ -1,0 +1,74 @@
+{
+  "phase": "L",
+  "semantics": "bounded fixed-point affine / global state as normative procedural state. A SetAffine transition (tag 0x30) attaches a canonical Q8 fixed-point 2D placement to one instance: destination pixel (x, y) samples the object at (su, sv) = ((a*x + b*y + c) >> 8, (d*x + e*y + f) >> 8), where the signed >> 8 is floor division (the canonical rounding) and each coefficient is |.| <= 2^24 Q8 units (1 source pixel = 256 units). There is no floating point in the normative path. A sample inside the object rectangle paints it (with identical fill/raster/bound-palette-index kind semantics as the plain placement); a sample outside leaves the underlying canvas; an overflowing accumulation is ArithmeticOverflow (typed). Whole-pixel translation, integer multiples of 90 deg rotation, and integer zooms are exact in Q8; general rotation/zoom/pan parameters are Q8 approximations whose exactness gap is closed by the residual algebra (F = M(state) (+) R). The identity affine deactivates (never stored); while attached the plain (x, y) placement is dormant and is restored on deactivation. Affine, velocity, and trajectory state on one instance are mutually exclusive; affines die with their instances (ClearInstances). Painting scans the whole canvas, so cumulative per-materialization affine sample work is capped by Limits.max_affine_work (typed MaterializationBudgetExceeded at materialization; parse stays cheap because the work only happens where frames are materialized). New Limits field: max_affine_work (default 8 full 1920x1080 canvases). Accounting: account_stream walks tag 0x30 (transition_bytes += 29).",
+  "candidate_gates": {
+    "max_affine_work": 16588800,
+    "coeff_domain": 8388608,
+    "q_bits": 8,
+    "exact_maps": ["whole-pixel translation", "quarter turns (90 deg multiples)", "integer 2x zoom"],
+    "approx_maps": ["general rotation", "sub-pixel pan", "general zoom"]
+  },
+  "courts": {
+    "rotate_flag_320x180": {
+      "content": "64x64 non-symmetric tile (distinctive mark at content (7,3)) quarter-turning about the destination center every interval",
+      "frames": 81,
+      "vole_bytes": 7547,
+      "raw_all_bytes": 4665600,
+      "ratio_raw_x": 618,
+      "interval_bytes": 3360,
+      "interval_cost": 42,
+      "set_affine_ops": 80,
+      "exact": true,
+      "note": "interval cost = 13 B envelope + 29 B SetAffine; every frame byte-verified against an independent incremental-sampling painter (structurally different loop from the materializer's direct products)"
+    },
+    "rotation_flattening_160x160": {
+      "content": "same 40-frame rotation sequence re-encoded through the raster-origin inverse encoder (which has no affine discovery -- the measured flattening tax; discovery/optimize is Phase O/Q)",
+      "frames": 41,
+      "affine_bytes": 5867,
+      "raster_encoded_bytes": 41077,
+      "ratio_x": 7,
+      "exact": true
+    },
+    "zoom_pan_320x180": {
+      "content": "integer 2x zoom then 0.5 px and 1.5 px Q8 sub-pixel pans",
+      "frames": 4,
+      "vole_bytes": 4313,
+      "exact": true
+    },
+    "residual_closure_30deg_160x160": {
+      "content": "float-rendered 30-degree rotation of the 64x64 tile as target; VOLE carries the best Q8 affine approximation + one persistent sparse correction",
+      "frames": 41,
+      "vole_bytes": 5263,
+      "residual_points": 58,
+      "residual_share_of_tile": 0.014,
+      "exact": true,
+      "note": "the Q8 exactness gap of a 30-degree rotation is a bounded edge set (58 of 4096 tile pixels) and is closed exactly: frames 1.. decode byte-identical to the float-rendered target"
+    },
+    "affine_over_index_and_fill": {
+      "content": "quarter-turned palette-index object resolved through its bound palette; 2x-zoomed uniform fill object",
+      "exact": true,
+      "note": "exercises the affine painter's Kind::Index and Kind::Fill branches; independent reference loops byte-identical"
+    },
+    "random_parameters": {
+      "content": "12 deterministic pseudo-random Q8 parameter sets near 0.5-1.0 px/px scale with offsets",
+      "frames": 13,
+      "exact": true,
+      "note": "materializer vs independent incremental painter agree pixel-for-pixel on every frame"
+    }
+  },
+  "negative_and_hostile": {
+    "work_budget": "9 affine instances on 1920x1080 exceed max_affine_work (8 canvases): parse succeeds (each op bounded), materialization fails typed MaterializationBudgetExceeded -- never a panic",
+    "wire": "out-of-domain coefficient (|a| = 2^24 + 1) patched into a canonical stream fails typed NonCanonicalEncoding at parse",
+    "semantics": "affine/velocity/trajectory exclusivity, identity deactivation, unknown-instance and out-of-domain errors, affines cleared with instances -- all typed",
+    "roundtrip": "accounting buckets sum to total and equal the stream length on an affine stream"
+  },
+  "all_streams_exact": true,
+  "test_count": "tests/phase_l.rs (11 courts); full gate: cargo fmt --check, cargo check --all-targets, cargo clippy --all-targets --all-features -- -D warnings, cargo test --all-features (167 tests, 0 failures, dev and release)",
+  "notes": [
+    "Normative format change: tag 0x30 (SetAffine), Limits.max_affine_work. Old streams unchanged; account_stream walks 0x30.",
+    "Phase L is procedural *state* mechanics: affine discovery inside the raster-origin inverse encoder is deliberately not added here (the flattening tax above is measured, not hidden); trajectory/palette/affine discovery and region-residual composites are Phase O/Q surface.",
+    "Quarter-turn/zoom/pan helpers and the independent affine painter live in src/demo.rs; the normative map and coefficient checks live in src/affine.rs; mutual exclusivity and lifetime semantics in src/state.rs.",
+    "The affine court reference painter accumulates per-row incrementally (nux += a per pixel) while the materializer computes direct products per pixel -- a shared arithmetic bug cannot mask a mismatch.",
+    "Residual-closure court: only 58 of 4096 tile pixels differ between the best Q8 30-degree approximation and the float render -- the exactness gap of an 8-bit fixed-point camera map is a small edge set, closed by one persistent sparse patch."
+  ]
+}

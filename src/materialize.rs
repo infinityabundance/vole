@@ -157,7 +157,16 @@ pub(crate) fn apply_canvas_op(
 ///    object paints by resolving every stored index through the palette bound
 ///    to the instance (Phase J): a missing binding/palette is `UnknownPalette`
 ///    and an index at or beyond the palette length is `OutOfBounds` — both
-///    typed, deterministic errors, never a wrap.
+///    typed, deterministic errors, never a wrap. When the instance carries an
+///    affine placement (Phase L), painting instead scans every canvas pixel,
+///    samples the object through the canonical Q8 source map
+///    `(su, sv) = ((a·x+b·y+c) >> 8, (d·x+e·y+f) >> 8)`, and overwrites the
+///    pixel when the source lies inside the object rectangle; the plain
+///    placement `(x, y)` is dormant until the affine deactivates. The object's
+///    kind semantics (fill value / raster sample / bound-palette entry lookup)
+///    are identical under both placement rules. Total per-materialization
+///    affine sample work is capped by `Limits.max_affine_work` (typed
+///    `MaterializationBudgetExceeded` beyond it).
 /// 3. The returned canvas is the exact full-frame view of `state`.
 pub fn materialize_full(
     state: &State,
@@ -168,10 +177,20 @@ pub fn materialize_full(
     limits.check_canvas(width, height)?;
     let mut canvas = Canvas::new(width, height, state.background(), limits)?;
     let mut acc = 0u64;
+    let mut affine_work = 0u64;
+    let affine_sample_cost = u64::from(width) * u64::from(height);
     for inst in state.instances() {
         acc = acc.saturating_add(1);
         if acc > u64::from(limits.max_instances) {
             return Err(VoleError::MaterializationBudgetExceeded);
+        }
+        if state.affine(inst.id).is_some() {
+            // An affine placement scans the whole canvas; bound the total
+            // per-materialization affine sample work before doing it.
+            affine_work = affine_work.saturating_add(affine_sample_cost);
+            if affine_work > limits.max_affine_work {
+                return Err(VoleError::MaterializationBudgetExceeded);
+            }
         }
         paint_instance(&mut canvas, state, inst)?;
     }
@@ -207,6 +226,9 @@ fn paint_object(
     obj: &Object,
     inst: &Instance,
 ) -> Result<(), VoleError> {
+    if let Some(params) = state.affine(inst.id) {
+        return paint_affine(canvas, state, obj, inst, params);
+    }
     let dx = inst.x;
     let dy = inst.y;
     let w = obj.width();
@@ -233,6 +255,67 @@ fn paint_object(
             }
         },
     }
+}
+
+/// Affine placement painter (Phase L): scan every destination pixel of the
+/// canvas, compute the canonical Q8 source sample, and paint the object
+/// sample when the source lies inside the object rectangle. Deterministic and
+/// integer throughout; the per-materialization sample work is bounded by
+/// `Limits.max_affine_work` (checked by the caller before this runs).
+fn paint_affine(
+    canvas: &mut Canvas,
+    state: &State,
+    obj: &Object,
+    inst: &Instance,
+    params: crate::affine::AffineParams,
+) -> Result<(), VoleError> {
+    let ow = i64::from(obj.width());
+    let oh = i64::from(obj.height());
+    // Resolve the sample source once: a Gray8 raster, a fill value, or a
+    // palette-entry lookup (index rasters need the instance's binding).
+    enum Kind<'a> {
+        Raster(&'a [u8]),
+        Fill(u8),
+        Index(&'a [u8], &'a [u8]), // indices + palette entries
+    }
+    let kind: Kind<'_> = match obj.indices() {
+        Some(indices) => {
+            let palette_id = state.binding(inst.id).ok_or(VoleError::UnknownPalette)?;
+            let entries = state.palette(palette_id).ok_or(VoleError::UnknownPalette)?;
+            Kind::Index(indices, entries)
+        }
+        None => match obj.samples() {
+            Some(raster) => Kind::Raster(raster),
+            None => Kind::Fill(obj.fill_value().unwrap_or(0)),
+        },
+    };
+    let cw = i64::from(canvas.width());
+    let ch = i64::from(canvas.height());
+    for y in 0..ch {
+        for x in 0..cw {
+            let (su, sv) = params.source(x, y).ok_or(VoleError::ArithmeticOverflow)?;
+            if su < 0 || sv < 0 || su >= ow || sv >= oh {
+                continue;
+            }
+            let v = match kind {
+                Kind::Raster(raster) => raster[(sv * ow + su) as usize],
+                Kind::Fill(value) => value,
+                Kind::Index(indices, entries) => {
+                    let idx = indices[(sv * ow + su) as usize];
+                    if usize::from(idx) >= entries.len() {
+                        return Err(VoleError::OutOfBounds);
+                    }
+                    entries[usize::from(idx)]
+                }
+            };
+            canvas.set(
+                u32::try_from(x).expect("x in canvas"),
+                u32::try_from(y).expect("y in canvas"),
+                v,
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Palette-index blit: overwrite the box's clipped rectangle with

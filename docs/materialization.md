@@ -10,7 +10,8 @@ The normative painter (Phase A, `FullFrame` view) is specified in
 `src/pixel.rs` (`Canvas`) and `src/materialize.rs` (`materialize_full`):
 
 1. allocate a `width × height` Gray8 canvas and fill it with `state.background()`;
-2. for each instance in paint order, paint its immutable object at `(x, y)`,
+2. for each instance in paint order, paint its immutable object at `(x, y)`
+   (or through its affine placement, Phase L),
    overwriting and clipping at the canvas border;
 3. (Phase J) a **palette-index object** paints by resolving every stored
    index through the entries of the palette bound to the instance
@@ -19,7 +20,15 @@ The normative painter (Phase A, `FullFrame` view) is specified in
    the typed error `OutOfBounds`. Index planes are immutable content; palettes
    are mutable-by-transition state, so the same plane re-renders with new
    values whenever its palette changes;
-4. return the canvas.
+4. (Phase L) an instance carrying an **affine placement** paints by scanning
+   every canvas pixel and sampling its object through the canonical Q8 source
+   map `(su, sv) = ((a·x+b·y+c) >> 8, (d·x+e·y+f) >> 8)` — integer
+   everywhere, floor rounding; a sample inside the object rectangle paints it
+   (with the same fill/raster/palette-index kind semantics as the plain
+   placement), a sample outside leaves the underlying canvas, and cumulative
+   per-materialization affine sample work is capped by
+   `Limits.max_affine_work`;
+5. return the canvas.
 
 Blit/copy-left semantics and clipping are defined by `Canvas::blit`,
 `fill_rect_clipped`, and the fill expansion in `src/object.rs`. These are the
@@ -41,9 +50,12 @@ residual algebra is explicit the moment it is used (§4/§22 of the paper;
 ## Independence
 
 The materializer shares no logic with the independent reference painter used
-by the Phase-A conformance court (`src/demo.rs::reference_painter`). The court
+by the Phase-A conformance court (`src/demo.rs::reference_painter`) or the
+Phase-L affine court's structurally different incremental sampling painter
+(`src/demo.rs::affine_reference_painter`). The court
 tests therefore catch shared-blit bugs: any divergence between the two would
-fail `tests/court.rs`. Boundary frames are additionally hashed under SHA-256
+fail `tests/court.rs` / `tests/phase_l.rs`. Boundary frames are additionally
+hashed under SHA-256
 against an independently re-derived reference in `proof/`.
 
 ## Views

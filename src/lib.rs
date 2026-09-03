@@ -23,6 +23,7 @@
 // hardening passes; enabling warn(missing_docs) here would block incremental
 // courts until the public surfacing stabilizes.)
 
+pub mod affine;
 pub mod checked;
 pub mod checkpoint;
 pub mod collapse;

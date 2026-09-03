@@ -34,6 +34,9 @@ independently re-derived reference in `proof/`.
 | Phase J: palette accounting buckets (state_bytes, index_object_bytes) sum to total | PASS |
 | Phase K: variable-region encoder streams decode byte-identical (zero whole-frame rebases on localized change) | PASS |
 | Phase K: region exact-ref reuse, DSFB byte-equality, noise RAW negative control | PASS |
+| Phase L: affine materialization == independent incremental sampling painter (rotation / zoom / sub-pixel pan / random parameters) | PASS |
+| Phase L: Q8 30°-rotation approximation + residual == float-rendered target byte-for-byte | PASS |
+| Phase L: affine over palette-index and fill objects exact; work budget + hostile wire forms typed | PASS |
 
 ## Goldens
 
