@@ -559,6 +559,11 @@ impl State {
         Ok(())
     }
 
+    /// Value of a persistent overlay point, if any.
+    pub fn overlay_pixel(&self, x: i64, y: i64) -> Option<u8> {
+        self.overlay.get(&(x, y)).copied()
+    }
+
     /// Number of live overlay points.
     pub fn overlay_len(&self) -> usize {
         self.overlay.len()

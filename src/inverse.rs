@@ -1,4 +1,4 @@
-//! Phase G: exhaustive inverse proceduralization (raster-origin encoder).
+//! Phase G/H + K: exhaustive inverse proceduralization (raster-origin encoder).
 //!
 //! This module builds the first true **inverse proceduralizer**: it accepts an
 //! observed Gray8 raster sequence (`Vec<Canvas>`) and, per frame, evaluates an
@@ -6,36 +6,49 @@
 //!
 //! ```text
 //! RAW · FILL · UNCHANGED · EXACT_OBJECT_REF · SPARSE · COPY_RECT ·
-//! TRANSLATION · RANS_RESIDUAL
+//! TRANSLATION · REGIONS · RANS_RESIDUAL
 //! ```
 //!
 //! plus the composite programs those families compose into (screen-scroll +
-//! residual strip, prev-frame diff). Every candidate is a *declarative program*
-//! over the normative state model — a list of state [`Transition`]s plus a
-//! list of canvas ops — and its correctness is established by materializing
-//! its expected frame through the same normative primitives the decoder runs
-//! (`materialize_full`, `rect_copy`, the Phase-F residual block decode) and
-//! comparing byte-for-byte with the target observation. The encoder never
-//! trusts a hypothesis from appearance; a candidate that cannot reproduce the
-//! target exactly is rejected and recorded, and the complete-cost winner
-//! (persisted bytes, §31-style accounting) is the only program emitted. The
-//! emitted stream is always verified end-to-end: it is decoded with the
-//! normative decoder and every materialized frame must equal the input raster,
-//! or the encoder returns a typed error instead of a stream.
+//! residual strip, prev-frame diff). **Phase K added the REGIONS family**
+//! (variable granularity 64 → 32 → 16 → 8): the per-frame diff is partitioned
+//! into tiles and each diff-bearing tile's *rectangular* bounding box is
+//! declared as an immutable object holding the target's own sub-rectangle and
+//! painted above the base by a fresh instance — so localized change never
+//! needs a whole-canvas declaration, and repeated region content is reused by
+//! exact identity with zero declaration bytes. Every candidate is a
+//! *declarative program* over the normative state model — a list of state
+//! [`Transition`]s plus a list of canvas ops — and its correctness is
+//! established by materializing its expected frame through the same normative
+//! primitives the decoder runs (`materialize_full`, `rect_copy`, the Phase-F
+//! residual block decode) and comparing byte-for-byte with the target
+//! observation. The encoder never trusts a hypothesis from appearance; a
+//! candidate that cannot reproduce the target exactly is rejected and
+//! recorded, and the complete-cost winner (persisted bytes, §31-style
+//! accounting) is the only program emitted. The emitted stream is always
+//! verified end-to-end: it is decoded with the normative decoder and every
+//! materialized frame must equal the input raster, or the encoder returns a
+//! typed error instead of a stream.
 //!
 //! # Scope honesty
 //!
-//! Phase G is *whole-frame* granularity (variable regions arrive in Phase K),
-//! so candidates reference full-canvas objects only. The enumerated candidate
-//! space is finite and deterministic per frame; the exact members are
-//! documented on [`FrameDecision`]. The full per-candidate materialization
-//! court runs on canvases up to a declared size gate; above it, 1D scroll
-//! candidates are row-hash-prefiltered (equality is always confirmed with a
-//! byte comparison before a candidate is accepted, so exactness never depends
-//! on a hash). Per-frame decisions are greedy and independent: temporal
-//! re-optimization (velocity/trajectory collapse, checkpoint placement,
-//! residual→persistent-content promotion) is Phase O, and this module reports
-//! the temporal gaps it measures rather than hiding them.
+//! The *base* granularity is the whole frame: frame 0 (and any content-wide
+//! rebase) declares a full-canvas object. The REGIONS family serves localized
+//! change down to 8×8 rectangles; it is evaluated only when the per-frame
+//! diff is non-empty and at most a quarter of the canvas (a larger diff is
+//! served at least as cheaply by the whole-frame reset sentinel), capped at
+//! 256 rectangles per candidate, and skipped when a changed sample is
+//! shadowed by a persistent overlay point (overlay paints above every
+//! instance). The enumerated candidate space is finite and deterministic per
+//! frame; the exact members are documented on [`FrameDecision`]. The full
+//! per-candidate materialization court runs on canvases up to a declared size
+//! gate; above it, 1D scroll candidates are row-hash-prefiltered (equality is
+//! always confirmed with a byte comparison before a candidate is accepted, so
+//! exactness never depends on a hash). Per-frame decisions are greedy and
+//! independent: temporal re-optimization (velocity/trajectory collapse,
+//! checkpoint placement, residual→persistent-content promotion, region
+//! instance retirement) is Phase O, and this module reports the temporal gaps
+//! it measures rather than hiding them.
 
 use std::collections::HashMap;
 
@@ -141,6 +154,31 @@ fn content_id(w: u32, h: u32, content: &Content) -> [u8; 32] {
 fn uniform_value(c: &Canvas) -> Option<u8> {
     let v = *c.as_slice().first()?;
     c.as_slice().iter().all(|&b| b == v).then_some(v)
+}
+
+/// The immutable content of a target sub-rectangle (Phase K region): `Fill`
+/// when the rectangle is uniform, otherwise its tight row-major `Raster`.
+fn rect_content(target: &Canvas, x0: i64, y0: i64, w: u32, h: u32) -> Content {
+    let cw = usize::try_from(target.width()).expect("width fits usize");
+    let mut first: Option<u8> = None;
+    let mut uniform = true;
+    let mut data = Vec::with_capacity(usize::try_from(w).unwrap() * usize::try_from(h).unwrap());
+    for sy in 0..h as i64 {
+        let row = (y0 + sy) as usize * cw + x0 as usize;
+        for sx in 0..w as i64 {
+            let v = target.as_slice()[row + sx as usize];
+            match first {
+                None => first = Some(v),
+                Some(f) if f != v => uniform = false,
+                _ => {}
+            }
+            data.push(v);
+        }
+    }
+    match (uniform, first) {
+        (true, Some(v)) => Content::Fill(v),
+        _ => Content::Raster(data),
+    }
 }
 
 /// Strict-lexicographic sparse diff of `target` over `base`: every coordinate
@@ -568,6 +606,39 @@ pub struct EncodeReport {
 const TOROIDAL_CANDIDATE_GATE: u64 = 4096;
 const FULL_SCROLL_GATE: u64 = 16 * 1024;
 
+// --- Phase K: variable-region gates ----------------------------------------
+// The region family partitions the canvas into tiles of a granularity and
+// declares one rectangle (the diff bounding box within each diff-bearing
+// tile) as an immutable object painted above the base. The candidate space is
+// bounded deterministically:
+// * regions are only evaluated when the per-frame diff is non-empty and at
+//   most a quarter of the canvas (a larger diff is served at least as cheaply
+//   by the RAW/whole-frame reset sentinel — a whole-canvas region equals a
+//   reset plus a redundant create op);
+// * at most REGION_MAX_RECTS rectangles per candidate (a partition needing
+//   more could not beat the reset sentinel's single declaration);
+// * a candidate whose rectangle would be painted *under* a persistent overlay
+//   point that disagrees with the target is invalid (overlay paints above all
+//   instances; the residual/sparse families serve those frames).
+const REGION_MAX_DIFF: u64 = 1 << 20;
+const REGION_MAX_RECTS: usize = 256;
+/// Granularity ladder evaluated by the full (exhaustive) plan.
+const REGION_GRANULARITIES: [u32; 4] = [64, 32, 16, 8];
+/// Granularity probed by the fixed-heuristic / rotating-sweep probe.
+const REGION_PROBE_GRANULARITY: u32 = 16;
+
+/// One declared rectangle of a region program (Phase K): the immutable
+/// content of the target's sub-rectangle, placed at `(x, y)` on later
+/// materializations by a fresh instance.
+#[derive(Debug, Clone)]
+struct RegionSpec {
+    x: i64,
+    y: i64,
+    w: u32,
+    h: u32,
+    content: Content,
+}
+
 /// A winning (or candidate) program plan.
 #[derive(Debug, Clone)]
 enum Plan {
@@ -598,6 +669,12 @@ enum Plan {
     SetPosition { dx: i64, dy: i64 },
     /// Advance the live instance's persistent translation.
     Advance,
+    /// Variable-region repair (Phase K): declare the changed rectangles as
+    /// immutable objects and paint them above the base with fresh instances.
+    /// Valid iff every changed sample lies inside a rectangle whose content
+    /// is the target's own sub-rectangle and no rectangle is shadowed by a
+    /// disagreeing overlay point.
+    Regions { rects: Vec<RegionSpec> },
 }
 
 /// Candidate under evaluation.
@@ -803,22 +880,32 @@ impl<'a> Encoder<'a> {
             .contains_key(&content_id(self.w, self.h, content))
     }
 
-    /// Register `content` (assigning an id if new), declare it into the
-    /// working state, and return its object id.
-    fn ensure_object(&mut self, content: Content) -> Result<u32, VoleError> {
-        let cid = content_id(self.w, self.h, &content);
+    /// Whether `(w, h, content)` is new to the registry (geometry-generic).
+    fn is_new_region(&self, w: u32, h: u32, content: &Content) -> bool {
+        !self.index.contains_key(&content_id(w, h, content))
+    }
+
+    /// Register `content` at the given geometry (assigning an id if new),
+    /// declare it into the working state, and return its object id.
+    fn ensure_object_wh(&mut self, w: u32, h: u32, content: Content) -> Result<u32, VoleError> {
+        let cid = content_id(w, h, &content);
         if let Some(&id) = self.index.get(&cid) {
             return Ok(id);
         }
         let id = self.next_object_id;
         self.next_object_id += 1;
         let obj = match &content {
-            Content::Fill(v) => Object::fill(self.w, self.h, *v)?,
-            Content::Raster(data) => Object::raster(self.w, self.h, data.clone())?,
+            Content::Fill(v) => Object::fill(w, h, *v)?,
+            Content::Raster(data) => Object::raster(w, h, data.clone())?,
         };
         self.st.declare_object(ObjectId(id), obj)?;
         self.index.insert(cid, id);
         Ok(id)
+    }
+
+    /// Register `content` at the canvas geometry.
+    fn ensure_object(&mut self, content: Content) -> Result<u32, VoleError> {
+        self.ensure_object_wh(self.w, self.h, content)
     }
 
     /// Transitions for a full reset to one full-canvas instance of `object_id`.
@@ -989,6 +1076,14 @@ impl<'a> Encoder<'a> {
                 Mode::Probe => self.consider_translation(target, &mut ev, true),
                 Mode::Off => {}
             }
+            // Phase K: variable-region repair family.
+            match plan.regions {
+                Mode::Full => self.consider_regions(target, &base, &mut ev, &REGION_GRANULARITIES),
+                Mode::Probe => {
+                    self.consider_regions(target, &base, &mut ev, &[REGION_PROBE_GRANULARITY])
+                }
+                Mode::Off => {}
+            }
         }
 
         let stats = ev.family_stats();
@@ -1110,6 +1205,34 @@ impl<'a> Encoder<'a> {
                 tr.apply(&mut self.st)?;
                 emitted_cost += tr_len(&tr);
                 emitted.push(tr);
+                self.last_copy_ops.clear();
+                self.last_translation = None;
+            }
+            Plan::Regions { rects } => {
+                // Declare each region content (reusing any exact content
+                // already in the object library) and paint it above the base
+                // with a fresh instance. Created instances persist, so a
+                // region stays repaired until something over-paints or clears
+                // it — the same persistence semantics as every state commit.
+                for spec in rects {
+                    if self.is_new_region(spec.w, spec.h, &spec.content) {
+                        decl = decl
+                            .checked_add(decl_bytes(spec.w, spec.h, &spec.content))
+                            .ok_or(VoleError::ArithmeticOverflow)?;
+                    }
+                    let oid = self.ensure_object_wh(spec.w, spec.h, spec.content.clone())?;
+                    let iid = self.next_instance_id;
+                    self.next_instance_id += 1;
+                    let tr = Transition::CreateInstance {
+                        id: InstanceId(iid),
+                        object: ObjectId(oid),
+                        x: spec.x,
+                        y: spec.y,
+                    };
+                    tr.apply(&mut self.st)?;
+                    emitted_cost += tr_len(&tr);
+                    emitted.push(tr);
+                }
                 self.last_copy_ops.clear();
                 self.last_translation = None;
             }
@@ -1546,6 +1669,106 @@ impl<'a> Encoder<'a> {
             return false;
         }
         rows_equal(target, prev, s as usize..self.h as usize, 0)
+    }
+
+    /// Phase K — variable-region family. Partition the target/base diff into
+    /// tiles of each requested granularity; for every tile that holds diff
+    /// samples, declare the tile's diff bounding box as an immutable object
+    /// (the target's own sub-rectangle) and paint it above the base with a
+    /// fresh instance. Rectangles are disjoint (one per tile), so paint order
+    /// is irrelevant and every changed sample is covered by construction;
+    /// unchanged samples under a rectangle are re-painted with their own
+    /// target value (exact). The candidate is evaluated only when a diff
+    /// exists, the diff is at most a quarter of the canvas (otherwise the
+    /// whole-frame reset sentinel is at least as cheap and this family is
+    /// documented as skipped), no changed sample is shadowed by a persistent
+    /// overlay point (overlay paints above every instance), and the partition
+    /// fits the rectangle cap. `probe` evaluates only the fixed probe
+    /// granularity; Full walks the 64→32→16→8 ladder.
+    fn consider_regions(
+        &self,
+        target: &Canvas,
+        base: &Canvas,
+        ev: &mut Eval,
+        granularities: &[u32],
+    ) {
+        let wh = u64::from(self.w) * u64::from(self.h);
+        ev.add_work(wh);
+        let pts = diff_points(base, target);
+        let k = pts.len() as u64;
+        if k == 0 || k > REGION_MAX_DIFF || k > wh / 4 {
+            return;
+        }
+        if self.st.overlay_len() > 0
+            && pts
+                .iter()
+                .any(|(x, y, _)| self.st.overlay_pixel(*x, *y).is_some())
+        {
+            return;
+        }
+        for &g in granularities {
+            if let Some(c) = self.region_candidate(&pts, target, g) {
+                ev.consider(c);
+            }
+        }
+    }
+
+    /// Build the region candidate for one granularity (None when the
+    /// partition exceeds the rectangle cap).
+    fn region_candidate(&self, pts: &[(i64, i64, u8)], target: &Canvas, g: u32) -> Option<Cand> {
+        let tile_w = usize::try_from(self.w.div_ceil(g)).ok()?;
+        let tile_h = usize::try_from(self.h.div_ceil(g)).ok()?;
+        let cell = |x: i64, y: i64| -> usize {
+            (y / i64::from(g)) as usize * tile_w + (x / i64::from(g)) as usize
+        };
+        let mut minx = vec![i64::MAX; tile_w * tile_h];
+        let mut maxx = vec![i64::MIN; tile_w * tile_h];
+        let mut miny = vec![i64::MAX; tile_w * tile_h];
+        let mut maxy = vec![i64::MIN; tile_w * tile_h];
+        for (x, y, _) in pts {
+            let c = cell(*x, *y);
+            minx[c] = minx[c].min(*x);
+            maxx[c] = maxx[c].max(*x);
+            miny[c] = miny[c].min(*y);
+            maxy[c] = maxy[c].max(*y);
+        }
+        let mut rects: Vec<RegionSpec> = Vec::new();
+        for ty in 0..tile_h {
+            for tx in 0..tile_w {
+                let c = ty * tile_w + tx;
+                if minx[c] == i64::MAX {
+                    continue;
+                }
+                if rects.len() >= REGION_MAX_RECTS {
+                    return None;
+                }
+                let (x0, y0) = (minx[c], miny[c]);
+                let (x1, y1) = (maxx[c], maxy[c]);
+                let w = u32::try_from(x1 - x0 + 1).ok()?;
+                let h = u32::try_from(y1 - y0 + 1).ok()?;
+                let content = rect_content(target, x0, y0, w, h);
+                rects.push(RegionSpec {
+                    x: x0,
+                    y: y0,
+                    w,
+                    h,
+                    content,
+                });
+            }
+        }
+        if rects.is_empty() {
+            return None;
+        }
+        let mut decl = 0u64;
+        for r in &rects {
+            if self.is_new_region(r.w, r.h, &r.content) {
+                decl += decl_bytes(r.w, r.h, &r.content);
+            }
+        }
+        let payload = INTERVAL_ENVELOPE + 17 * rects.len() as u64 + decl;
+        let mut c = Cand::new("regions", Plan::Regions { rects }, payload);
+        c.valid = true;
+        Some(c)
     }
 
     /// Whole-pixel instance translation. `probe` restricts evaluation to the

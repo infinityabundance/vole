@@ -1,0 +1,60 @@
+{
+  "phase": "K",
+  "semantics": "variable regions in the raster-origin inverse encoder (encoder-side search only; no wire-format changes). The REGIONS family partitions the per-frame diff into tiles of a granularity (64 -> 32 -> 16 -> 8), declares each diff-bearing tile's rectangular bounding box as an immutable object holding the target's own sub-rectangle, and paints it above the base with a fresh CreateInstance. Repeated region content is reused by exact BLAKE3 identity (zero declaration bytes). Documented candidate gates: diff non-empty and <= a quarter of the canvas; <= 256 rectangles per candidate; skipped when any changed sample is shadowed by a persistent overlay point (overlay paints above instances). Full mode walks the granularity ladder; Probe mode evaluates the fixed 16 granularity (fixed heuristic / DSFB rotating sweep). DSFB governs the family (active-set Full, otherwise Off with periodic probe).",
+  "candidate_gates": {
+    "region_max_diff": 1048576,
+    "region_max_rects": 256,
+    "region_max_diff_share_of_canvas": 0.25,
+    "granularities_full": [64, 32, 16, 8],
+    "granularity_probe": 16
+  },
+  "courts": {
+    "flag_local_1920x1080": {
+      "content": "structured desktop base; a 200x120 'clock panel' changes content every frame for 40 frames plus a full-width x16 status bar every 8 frames",
+      "frames": 41,
+      "vole_bytes": 3237461,
+      "raw_all_bytes": 85017600,
+      "ratio_raw_x": 26,
+      "interval_bytes": 1163792,
+      "winners": "rawx1 regionsx40",
+      "rebases_after_frame0": 0,
+      "exact": true,
+      "note": "frame 0 pays the one whole-canvas base declaration (~2.07 MB); every localized change is a small region declaration, never a whole-frame rebase"
+    },
+    "reuse_court_160x120": {
+      "content": "5 clock-change frames then 31 frames where only a 16x16 glyph area alternates between two known contents",
+      "frames": 37,
+      "exhaustive": { "vole": 26309, "winners": "rawx1 regionsx36" },
+      "fixed_heuristic": { "vole": 27247, "J_ratio": 1.0357, "N_ratio": 0.5898, "note": "probe-granularity blindness: the fixed 16-granularity probe splits some rectangles, costing extra creates" },
+      "dsfb_guided": { "vole": 26309, "J_ratio": 1.0, "N_ratio": 0.3777, "winners_match_oracle": true },
+      "reuse_floor_bytes_per_interval": 30,
+      "exact": true
+    },
+    "rect_shapes_128x96": {
+      "content": "full-width w x 8 banner + 24x24 block + 8x8 cell per frame (rectangular region shapes)",
+      "frames": 17,
+      "vole_bytes": 45419,
+      "winners": "rawx1 regionsx16",
+      "region_creates": 96,
+      "rebases_after_frame0": 0,
+      "exact": true
+    },
+    "noise_48x32": {
+      "content": "negative control: full-canvas deterministic noise",
+      "frames": 12,
+      "vole_bytes": 19018,
+      "raw_all_bytes": 18432,
+      "winners": "rawx12",
+      "note": "diff gate skips the region family; noise stays RAW with bounded overhead",
+      "exact": true
+    }
+  },
+  "all_streams_exact": true,
+  "test_count": "tests/phase_k.rs (9 courts); full gate: cargo fmt --check, cargo check --all-targets, cargo clippy --all-targets --all-features -- -D warnings, cargo test --all-features (152 tests, 0 failures, dev and release)",
+  "notes": [
+    "No normative format change in Phase K: regions use the existing object + instance model (any box geometry at any placement). Old encoder behavior is unchanged wherever the new family does not win the cost court.",
+    "Region instances persist in state: a region stays repaired until over-painted or cleared; long-horizon instance retirement and region+residual composites (dense region with sparse dust remainder) are recorded Phase-O surface.",
+    "Candidate validity is analytic (target-exact rectangle content + full diff coverage); the standing invariants still hold: every committed winner is re-materialized and compared with the target, and every stream is decode-verified end-to-end before return.",
+    "Oracle invariant asserted per frame in tests: winner payload == min over every evaluated family; region winners pay envelope + 17 B x created rectangles."
+  ]
+}

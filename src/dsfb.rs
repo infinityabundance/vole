@@ -6,10 +6,10 @@
 //! make an invalid reconstruction acceptable, suppress RAW permanently, or be
 //! required to decode a stream.
 //!
-//! Three strategies run over the *same* candidate universe (Phase G's whole-
-//! frame families: UNCHANGED · reset/EXACT_REF/RAW · SPARSE · one-shot
+//! Three strategies run over the *same* candidate universe (the whole-frame
+//! families: UNCHANGED · reset/EXACT_REF/RAW · SPARSE · one-shot
 //! RESIDUAL/RANS_RESIDUAL · COPY_RECT (wrap, screen-scroll, prev-diff) ·
-//! TRANSLATION · clears):
+//! TRANSLATION · REGIONS (Phase K variable granularity) · clears):
 //!
 //! * **Exhaustive** — evaluate the full per-frame candidate space (the search-
 //!   quality oracle).
@@ -85,6 +85,9 @@ pub struct FramePlan {
     /// COPY_RECT families (toroidal wraps, screen scrolls). Probe replays the
     /// previous winner's rect ops (or a small default wrap set).
     pub copies: Mode,
+    /// Phase K: variable-region repair family. Full walks the 64→32→16→8
+    /// granularity ladder; Probe evaluates the fixed probe granularity only.
+    pub regions: Mode,
     /// Whether the previous frame's winner emitted copy ops available for a
     /// probe replay.
     pub replay_ops: bool,
@@ -102,6 +105,7 @@ impl FramePlan {
             prev_diff: true,
             translation: Mode::Full,
             copies: Mode::Full,
+            regions: Mode::Full,
             replay_ops: false,
             broaden: false,
         }
@@ -126,6 +130,7 @@ impl FramePlan {
             prev_diff: true,
             translation: Mode::Full,
             copies: Mode::Probe,
+            regions: Mode::Probe,
             replay_ops: true,
             broaden: false,
         }
@@ -271,6 +276,7 @@ impl DsfbModel {
             prev_diff: true,
             translation: Mode::Off,
             copies: Mode::Off,
+            regions: Mode::Off,
             replay_ops: true,
             broaden: false,
         };
@@ -279,6 +285,9 @@ impl DsfbModel {
         }
         if active.contains(&"copy_rect") || active.contains(&"copy_residual") {
             p.copies = Mode::Probe;
+        }
+        if active.contains(&"regions") {
+            p.regions = Mode::Full;
         }
         // Deterministic rotating sweep (sentinel hypothesis): periodically
         // re-probe the non-active families so a silent regime change is found
@@ -289,6 +298,9 @@ impl DsfbModel {
             }
             if p.copies == Mode::Off {
                 p.copies = Mode::Probe;
+            }
+            if p.regions == Mode::Off {
+                p.regions = Mode::Probe;
             }
         }
         p

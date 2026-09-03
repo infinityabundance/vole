@@ -1,0 +1,8 @@
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/examples/regions_proof`
+flag-local-1920x1080: frames=41 vole=3237461B raw_all=85017600B ratio_raw=26x interval_bytes=1163792B winners=[rawx1 regionsx40] rebases_after_frame0=0 exact=true encode_ms=1544
+reuse-court-160x120: strategy=exhaustive vole=26309B winners=[rawx1 regionsx36] exact=true
+reuse-court-160x120: strategy=fixed_heuristic vole=27247B J_ratio=1.0357 N_ratio=0.5898 winners=[rawx1 regionsx36] exact=true
+reuse-court-160x120: strategy=dsfb_guided vole=26309B J_ratio=1.0000 N_ratio=0.3777 winners=[rawx1 regionsx36] exact=true
+rect-shapes-128x96: frames=17 vole=45419B winners=[rawx1 regionsx16] region_creates=96 exact=true
+noise-48x32: frames=12 vole=19018B raw_all=18432B winners=[rawx12] exact=true

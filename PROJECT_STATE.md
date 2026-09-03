@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase J sealed (see git log)
-**Current phase:** J (palette state) — SEALED. Next: Phase K (variable regions).
+**Current head:** Phase K sealed (see git log)
+**Current phase:** K (variable regions) — SEALED. Next: Phase L (affine/global state).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -94,41 +94,56 @@ whole-palette rotation **28 B/interval** while every pixel changes; the §55
 flattening-tax court measures authored-palette intervals at 288 B vs the
 raster-origin inverse encode's 50 016 B (174×) on identical visual frames;
 static palette content is free at rest (13 B/frame unchanged lane). Receipt +
-evidence: `docs/phase-j.md`, `evidence/campaigns/phase-j-palette-…/`.
+evidence: `docs/phase-j.md`, `evidence/campaigns/phase-j-palette-1788469733/`.
+
+Phase K (this head): **variable regions** in the raster-origin encoder
+(`src/inverse.rs`, encoder-side only — no wire-format changes). The new
+REGIONS family partitions the per-frame diff into tiles of a granularity
+(64 → 32 → 16 → 8), declares each diff-bearing tile's rectangular bounding
+box as an immutable object holding the target's own sub-rectangle, and paints
+it above the base with a fresh instance; repeated region content is reused by
+exact BLAKE3 identity with zero declaration bytes. Documented gates: diff ≤ ¼
+canvas, ≤ 256 rectangles, no overlay-shadowed samples; DSFB governs the
+family (Full ladder / Probe / Off). Measured: 1920×1080 localized-change
+flagship — 40 region frames with **zero whole-frame rebases** after frame 0
+(26× vs raw); alternating-glyph region reuse at the 30 B floor across 35
+frames; DSFB byte-identical to the oracle at N = 0.378×; fixed-heuristic
+probe-granularity blindness measured at J 1.036; noise stays RAW (diff gate).
+Receipt + evidence: `docs/phase-k.md`,
+`evidence/campaigns/phase-k-regions-…/`.
 
 ## In progress
 
-Phase K — variable regions (64×64 → 32×32 → 16×16 → 8×8, rectangular
-regions) with DSFB-governed search and no uncontrolled partition explosion.
+Phase L — bounded fixed-point affine / global state (pan, zoom, rotation,
+camera-like transforms) with residual closure of the exactness gap.
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase K variable regions → Phase L affine/global → Phase M transform residual
-→ Phase N procedural generators → Phase O representation re-optimization
-(`vole optimize`) → Phase P optional EntropyFS persistence → Phase Q native
-procedural ingest API → Phase R procedural transport → Phase S partial
-materialization → Phase T archive profile → Phase U perceptual profile (last).
+Phase L affine/global → Phase M transform residual → Phase N procedural
+generators → Phase O representation re-optimization (`vole optimize`) →
+Phase P optional EntropyFS persistence → Phase Q native procedural ingest API
+→ Phase R procedural transport → Phase S partial materialization → Phase T
+archive profile → Phase U perceptual profile (last).
 
 ## Failures / uncertainty
 
-No mechanism rejected yet. Measured, recorded gaps (not hidden): whole-frame
-granularity pays full-raster declarations at raster-origin frame 0 / rebase
-frames, and whole-canvas index planes pay their raster-area declaration once
-(region extraction is Phase K, native ingest Phase Q); the raster-origin
-inverse encoder has no palette/trajectory *discovery* family yet — the
+No mechanism rejected yet. Measured, recorded gaps (not hidden): frame 0 and
+content-wide rebases still pay one whole-canvas declaration (regions serve
+localized change; native ingest is Phase Q); region *instances persist* —
+long-horizon instance retirement and region+residual composites (dense
+region with sparse dust) are Phase-O re-optimization surface; the
+raster-origin encoder has no palette/trajectory *discovery* family yet — the
 measured flattening tax is 174× (palette) and trajectory collapse is a
-post-pass (Phase O `vole optimize`); stable residuals pay one-shot per frame
-until a re-optimization pass promotes them (Phase O); "static after
-canvas-op" frames repeat at 38 B until a RAW-capture rebase (Phase O); DSFB
-can miss a cheaper family with no slew/regime signal for at most one small
-interval before the rotating sweep or a following signal recovers it (Phase H
+post-pass (Phase O `vole optimize`); the fixed-heuristic region probe is
+blind to granularity (measured J 1.036 on the reuse court); stable residuals
+pay one-shot per frame until Phase O promotes them; DSFB can miss a cheaper
+family with no slew/regime signal for at most one small interval (Phase H
 receipt); trajectory descriptors only pay from runs of ≥ 3 frames (Phase I
-receipt); an active zero-velocity trajectory costs more than the unchanged
-lane, so statics never use trajectories (measured, Phase I); palettes must be
-set before they are bound, and index validity is enforced at materialization
-time (Phase J).
+receipt); active zero-velocity trajectories cost more than the unchanged lane
+(Phase I); palettes must be set before they are bound, and index validity is
+enforced at materialization (Phase J).
 
 ## Frozen (format decisions)
 

@@ -32,6 +32,8 @@ independently re-derived reference in `proof/`.
 | Phase J: palette-index materialization == independent palette painter, all frames | PASS |
 | Phase J: palette ops (0x06/0x08/0x2d–0x2f) round-trip and hostile forms fail typed | PASS |
 | Phase J: palette accounting buckets (state_bytes, index_object_bytes) sum to total | PASS |
+| Phase K: variable-region encoder streams decode byte-identical (zero whole-frame rebases on localized change) | PASS |
+| Phase K: region exact-ref reuse, DSFB byte-equality, noise RAW negative control | PASS |
 
 ## Goldens
 

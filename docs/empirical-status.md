@@ -31,6 +31,9 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Trajectory collapse (§43) — repeated `SetPosition` runs → one trajectory, exactness proven by normative decode, strict byte fall | ADOPTED | Phase I: raster linear pan interval transitions 1 014 → 572 B (0.564×); raster accel 182 → 132 B (0.725×); noise & random-walk fixpoints (`src/collapse.rs`, `tests/phase_i.rs`) |
 | Palette state (palette-index objects + mutable palette table + per-instance bindings) | ADOPTED | Phase J: tags 0x05/0x06/0x08/0x2d–0x2f; accent cycle 24 B/interval vs 204 773 B/interval palette-less sparse floor (8 532×) and 2 073 600 B RAW on 1920×1080; full rotation 28 B/interval while every pixel changes; static palette content = 13 B/frame unchanged lane (`tests/phase_j.rs`) |
 | Palette flattening-tax court (§55 on UI content) | ADOPTED (measured) | Phase J: same visual frames — authored palette intervals 288 B vs raster-origin inverse encode 50 016 B (174×); palette search in the raster encoder is Phase O/Q |
+| Variable regions (64→32→16→8 granularity, rectangular bounding boxes) in the inverse encoder | ADOPTED | Phase K: localized-change flagship 1920×1080 — 40 region frames, **zero whole-frame rebases** after frame 0 (26× vs raw); exact-ref region reuse with zero declarations (reuse floor 30 B/interval); noise stays RAW (diff gate) (`tests/phase_k.rs`) |
+| Region reuse by exact content identity | ADOPTED | Phase K: alternating glyph area served by two objects reused across 35 frames with 0 declaration bytes (`tests/phase_k.rs`) |
+| DSFB governance of the region family | ADOPTED (non-normative) | Phase K: reuse court J_dsfb == J_exhaustive byte-identical at N = 0.378×; fixed-heuristic probe granularity blindness measured at J 1.036 |
 | Affine / global state | PROPOSED | pending |
 | Transform residual | PROPOSED | pending |
 | Procedural generators | PROPOSED | pending |
