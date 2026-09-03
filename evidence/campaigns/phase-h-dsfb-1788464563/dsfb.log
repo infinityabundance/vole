@@ -1,0 +1,36 @@
+  [Exhaustive] 51.812919ms
+  [Exhaustive] 51.537147ms
+court=steady-pan-64x64 strategy=exhaustive frames=40 vole=5201B raw=163840B exact=true rebases=0 candidates=11038 work=44899102 winners=[rawx1 translationx39]
+  [FixedHeuristic] 3.937388ms
+court=steady-pan-64x64 strategy=fixed_heuristic frames=40 vole=5201B raw=163840B exact=true rebases=0 candidates=1600 work=6551104 winners=[rawx1 translationx39] oracle_N=11038 oracle_work=44899102 N_ratio=0.145 work_ratio=0.146 J_ratio=1.000
+  [DsfbGuided] 3.108426ms
+court=steady-pan-64x64 strategy=dsfb_guided frames=40 vole=5201B raw=163840B exact=true rebases=0 candidates=1458 work=5961138 winners=[rawx1 translationx39] oracle_N=11038 oracle_work=44899102 N_ratio=0.132 work_ratio=0.133 J_ratio=1.000
+  [Exhaustive] 108.40968199999999ms
+  [Exhaustive] 108.54829000000001ms
+court=wrap-by-7-40x32 strategy=exhaustive frames=25 vole=2883B raw=32000B exact=true rebases=0 candidates=34609 work=44271409 winners=[rawx1 copy_rectx24]
+  [FixedHeuristic] 9.377563ms
+court=wrap-by-7-40x32 strategy=fixed_heuristic frames=25 vole=33171B raw=32000B exact=true rebases=24 candidates=985 work=1260505 winners=[rawx25] oracle_N=34609 oracle_work=44271409 N_ratio=0.028 work_ratio=0.028 J_ratio=11.506
+  [DsfbGuided] 6.880826ms
+court=wrap-by-7-40x32 strategy=dsfb_guided frames=25 vole=2883B raw=32000B exact=true rebases=0 candidates=1653 work=2172533 winners=[rawx1 copy_rectx24] oracle_N=34609 oracle_work=44271409 N_ratio=0.048 work_ratio=0.049 J_ratio=1.000
+  [Exhaustive] 27.420132ms
+  [Exhaustive] 27.445699ms
+court=static-blink-32x24 strategy=exhaustive frames=32 vole=1486B raw=24576B exact=true rebases=0 candidates=27464 work=21071432 winners=[rawx1 unchangedx15 sparsex16]
+  [DsfbGuided] 2.091543ms
+court=static-blink-32x24 strategy=dsfb_guided frames=32 vole=1486B raw=24576B exact=true rebases=0 candidates=1997 work=1542605 winners=[rawx1 unchangedx15 sparsex16] oracle_N=27464 oracle_work=21071432 N_ratio=0.073 work_ratio=0.073 J_ratio=1.000
+  [Exhaustive] 226.522853ms
+  [Exhaustive] 230.88126400000002ms
+court=regime-32x32 strategy=exhaustive frames=78 vole=18240B raw=79872B exact=true rebases=14 candidates=90661 work=92792357 winners=[rawx15 unchangedx23 copy_rectx22 exact_refx1 translationx17]
+  [FixedHeuristic] 19.477549ms
+court=regime-32x32 strategy=fixed_heuristic frames=78 vole=40372B raw=79872B exact=true rebases=36 candidates=3112 work=3212328 winners=[rawx37 unchangedx23 exact_refx1 translationx17] oracle_N=90661 oracle_work=92792357 N_ratio=0.034 work_ratio=0.035 J_ratio=2.213
+  [DsfbGuided] 51.327856ms
+court=regime-32x32 strategy=dsfb_guided frames=78 vole=19246B raw=79872B exact=true rebases=15 candidates=16266 work=16703370 winners=[rawx16 unchangedx23 copy_rectx21 exact_refx1 translationx17] oracle_N=90661 oracle_work=92792357 N_ratio=0.179 work_ratio=0.180 J_ratio=1.055
+  [DsfbGuided] 51.177778ms
+regime-switch: at_frame=1 oracle_winner=unchanged guided_recovery_latency_frames=Some(0)
+regime-switch: at_frame=24 oracle_winner=copy_rect guided_recovery_latency_frames=Some(1)
+regime-switch: at_frame=46 oracle_winner=raw guided_recovery_latency_frames=Some(0)
+regime-switch: at_frame=60 oracle_winner=exact_ref guided_recovery_latency_frames=Some(0)
+regime-switch: at_frame=61 oracle_winner=translation guided_recovery_latency_frames=Some(0)
+dsfb-diag frame=1 winner=unchanged payload=13B alpha=0 broadened=false since_regime=1 omega=1.0000 active=[unchanged] phi={ unchanged:1.00 } total_evaluated=1176
+dsfb-diag frame=2 winner=unchanged payload=13B alpha=0 broadened=false since_regime=2 omega=0.5000 active=[unchanged] phi={ unchanged:1.00 } total_evaluated=1179
+dsfb-diag frame=4 winner=unchanged payload=13B alpha=0 broadened=false since_regime=4 omega=0.1250 active=[unchanged] phi={ unchanged:1.00 } total_evaluated=1185
+dsfb-diag frame=77 winner=translation payload=26B alpha=0 broadened=false since_regime=16 omega=0.0033 active=[translation] phi={ translation:1.00 } total_evaluated=16265

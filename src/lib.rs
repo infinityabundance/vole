@@ -27,6 +27,7 @@ pub mod checked;
 pub mod checkpoint;
 pub mod decoder;
 pub mod demo;
+pub mod dsfb;
 pub mod encoder;
 pub mod error;
 pub mod format;

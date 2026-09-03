@@ -24,6 +24,9 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Content replacement (clear instances / clear overlay) | ADOPTED | Phase G: tags 0x28/0x29; full-frame replacement semantics (`tests/malformed.rs`) |
 | Per-frame residual algebra (one-shot `⊕_ρ`, RAW or rANS block) | ADOPTED | Phase G: tag 0x2a; hostile courts + RANS_RESIDUAL winners on skewed deltas (`tests/phase_g.rs`) |
 | Inverse-proceduralization encoder (exhaustive raster→VOLE) | ADOPTED | Phase G: exhaustive per-frame court, winner == min over families (regret 0), end-to-end decode-verified; noise → RAW +1.2% (`tests/phase_g.rs`, `examples/inverse_proof.rs`) |
+| Search strategies over one candidate universe (Exhaustive / FixedHeuristic / DsfbGuided) | ADOPTED | Phase H: N_dsfb ≤ 0.18× N_exhaustive with J_dsfb == J_exhaustive byte-identical on steady courts; regime J 1.055× oracle, 0–1 frame recovery; fixed-heuristic probe misses measured at J 11.5× (`tests/phase_h.rs`, `examples/dsfb_proof.rs`) |
+| DSFB governor (deterministic trust model; φ/ω/α; regime broadening; rotating sweep) | ADOPTED (non-normative) | Phase H: never in decode; exact-final-cost and RAW-sentinel authority preserved; diagnostics recorded per frame |
+| Local procedural rebase (whole-frame RAW recapture) | ADOPTED (measured) | Phase H: rebase events counted per strategy (noise 14 + switch frames); bounded recovery latency |
 | Trajectory collapse | PROPOSED | pending (measured temporal gap; Phase I/O) |
 | Palettes | PROPOSED | pending |
 | Affine / global state | PROPOSED | pending |

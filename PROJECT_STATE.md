@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase G sealed (see git log)
-**Current phase:** G (exhaustive inverse proceduralization) — SEALED. Next: Phase H (fixed-heuristic vs DSFB-governed search).
+**Current head:** Phase H sealed (see git log)
+**Current phase:** H (fixed-heuristic vs DSFB-guided search) — SEALED. Next: Phase I (parametric trajectories).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -21,8 +21,8 @@ content→id reuse registry, and the unchanged-state lane; static court confirms
 Phase C: persistent sparse overlay + strict-sorted SPARSE patch; blink court
 materializes 65 exact frames from a 1 820 B stream (raw 14.98 MB).
 
-Phase D: a COPY_RECT/MOVE_RECT frame-referencing op at dependency depth 1 with
-canonical snapshot-copy + clipping. Oracle-exact wrap-scroll court; hostile
+Phase D: COPY_RECT/MOVE_RECT frame-referencing ops at dependency depth 1 with
+canonical snapshot-copy + clipping; oracle-exact wrap-scroll court; hostile
 bounds; noise negative control.
 
 Phase E: persistent integer translation — per-instance `(vx, vy)` applied once
@@ -37,51 +37,62 @@ normalization (512 B inline model), RAW-fallback accounting. Byte parity +
 bidirectional cross-decode vs the `ryg-rans-rs` oracle; hostile courts; skew
 59×, uniform→RAW.
 
-Phase G (this head): **exhaustive inverse proceduralization** (`src/inverse.rs`)
-— a raster→VOLE encoder that per frame exhaustively evaluates RAW · FILL ·
+Phase G: exhaustive inverse proceduralization (`src/inverse.rs`) — a
+raster→VOLE encoder that per frame exhaustively evaluates RAW · FILL ·
 UNCHANGED · EXACT_OBJECT_REF · SPARSE · COPY_RECT · TRANSLATION ·
 RANS_RESIDUAL (plus copy+residual and prev-diff composites), byte-validates
 every candidate through the normative materializer path, and emits the
-complete-cost winner; streams are always decode-verified end-to-end before
-return. New wire ops 0x28/0x29 (content-replacement clears) and 0x2a (one-shot
-per-frame residual block); new bounds `max_overlay_points`/`max_residual_bytes`
-and enforcement of `max_stream_bytes`/`max_checkpoint_distance`; `vole encode`
-CLI; per-frame decision records with regret-0 oracle consistency; whole-frame
-granularity with documented row-hash-prefiltered large-canvas scroll search.
-Courts + evidence + receipt in `tests/phase_g.rs`,
-`tests/malformed.rs`, `examples/inverse_proof.rs`,
-`evidence/campaigns/phase-g-inverse-1788461583/`, `docs/phase-g.md`.
+complete-cost winner; streams always decode-verified end-to-end. Wire ops
+0x28/0x29 (content-replacement clears) and 0x2a (one-shot per-frame residual
+block); bounds `max_overlay_points`/`max_residual_bytes` and enforcement of
+`max_stream_bytes`/`max_checkpoint_distance`; `vole encode` CLI; per-frame
+decision records (regret-0 oracle consistency). Receipt + evidence:
+`docs/phase-g.md`, `evidence/campaigns/phase-g-inverse-1788461583/`.
+
+Phase H (this head): three search strategies over the same candidate universe
+— **Exhaustive** (oracle, still the default) · **FixedHeuristic** (constant
+plan) · **DsfbGuided** (non-normative deterministic trust model in
+`src/dsfb.rs`: recent-winner active set, per-family `φ`, drift `ω`, regime
+flag `α`, full broaden on regime/slew, deterministic rotating sweep every 6th
+frame; no stochastic bandits). Decision records now include `search_work` and
+`dsfb_diag`. Measured: `N_dsfb ≤ 0.18× N_exhaustive` with byte-identical
+`J_dsfb == J_exhaustive` on steady courts; across four regime changes
+(static→wrap→noise→pan) `J_dsfb = 1.055×` oracle with 0–1 frame recovery
+latency and 36 → 15 measured rebase events vs the fixed heuristic; the fixed
+heuristic's constant probe set misses scroll-by-7 entirely (`J = 11.5×`).
+Receipt + evidence: `docs/phase-h.md`,
+`evidence/campaigns/phase-h-dsfb-1788464563/`.
 
 ## In progress
 
-Phase H — fixed-heuristic vs DSFB-governed search over the Phase-G candidate
-universe (deterministic sentinels; no stochastic bandits; regret courts
-`N_dsfb < N_exhaustive` while `J_dsfb ≈ J_exhaustive`; local rebase). The
-decision-record infrastructure from G is the shared court surface.
+Phase I — bounded parametric trajectories (constant/linear/acceleration/
+piecewise-linear integer/fixed-point): collapse repeated `SET_POSITION`
+runs and measured steady translations into a single trajectory descriptor
+only when materialization stays exact and complete cost falls. The Phase-H
+decision records and the DSFB governor are the natural court + search surface.
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase H DSFB-guided search → Phase I parametric trajectories (bounded
-fixed-point: constant/linear/acceleration/piecewise; collapse of repeated
-SET_POSITION) → Phase J palettes → Phase K variable regions → Phase L
-affine/global → Phase M transform residual → Phase N procedural generators →
-Phase O representation re-optimization (`vole optimize`) → Phase P optional
-EntropyFS persistence → Phase Q native procedural ingest API → Phase R
-procedural transport → Phase S partial materialization → Phase T archive
-profile → Phase U perceptual profile (last).
+Phase I parametric trajectories → Phase J palettes → Phase K variable regions →
+Phase L affine/global → Phase M transform residual → Phase N procedural
+generators → Phase O representation re-optimization (`vole optimize`) → Phase
+P optional EntropyFS persistence → Phase Q native procedural ingest API →
+Phase R procedural transport → Phase S partial materialization → Phase T
+archive profile → Phase U perceptual profile (last).
 
 ## Failures / uncertainty
 
-No mechanism rejected yet. Measured temporal gaps recorded (not hidden):
-per-frame `SetPosition` (26 B) vs authored velocity (14 B from frame 2) on
-pans; stable residuals pay one-shot per frame until a re-optimization pass
-promotes them to persistent state/content (Phase O); "static after canvas-op"
-frames repeat at 38 B until a RAW-capture rebase (Phase O checkpoint/capture
-placement). Phase G's whole-frame granularity pays a full-raster declaration
-at raster-origin frame 0 / appearance frames (region extraction is Phase K;
-native ingest is Phase Q).
+No mechanism rejected yet. Measured, recorded gaps (not hidden): whole-frame
+granularity pays full-raster declarations at raster-origin frame 0 / rebase
+frames (region extraction is Phase K, native ingest Phase Q); per-frame
+`SetPosition` (26 B) vs authored velocity (14 B from frame 2) on pans
+(trajectory collapse is Phase I); stable residuals pay one-shot per frame
+until a re-optimization pass promotes them (Phase O); "static after canvas-op"
+frames repeat at 38 B until a RAW-capture rebase (Phase O); DSFB can miss a
+cheaper family with no slew/regime signal for at most one small interval
+before the rotating sweep or a following signal recovers it (Phase H receipt).
 
 ## Frozen (format decisions)
 

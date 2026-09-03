@@ -1,0 +1,44 @@
+{
+  "phase": "H",
+  "semantics": "three search strategies over the same Phase-G candidate universe: Exhaustive (oracle), FixedHeuristic (constant per-frame plan), DsfbGuided (deterministic trust model: recent-winner active set, phi/omega/alpha diagnostics, regime broadening, deterministic rotating sweep; no stochastic bandits). DSFB is encoder-side only and never touches normative decode.",
+  "primary_criterion": "N_dsfb < N_exhaustive while J_dsfb == J_exhaustive on steady content",
+  "courts": {
+    "steady_pan_64x64": {
+      "frames": 40,
+      "content": "10x6 box gliding diagonally inside a 64x64 canvas over uniform 90",
+      "exhaustive": { "vole": 5201, "candidates": 11038, "work": 44899102, "winners": "rawx1 translationx39" },
+      "fixed_heuristic": { "vole": 5201, "candidates": 1600, "work": 6551104, "N_ratio": 0.145, "J_ratio": 1.000 },
+      "dsfb_guided": { "vole": 5201, "candidates": 1458, "work": 5961138, "N_ratio": 0.132, "J_ratio": 1.000, "rebases": 0 }
+    },
+    "wrap_by_7_40x32": {
+      "frames": 25,
+      "content": "whole-canvas wrap scroll by 7 rows/frame (outside the fixed heuristic's 1..3 probe window)",
+      "exhaustive": { "vole": 2883, "candidates": 34609, "work": 44271409, "winners": "rawx1 copy_rectx24" },
+      "fixed_heuristic": { "vole": 33171, "candidates": 985, "work": 1260505, "N_ratio": 0.028, "J_ratio": 11.506, "rebases": 24 },
+      "dsfb_guided": { "vole": 2883, "candidates": 1653, "work": 2172533, "N_ratio": 0.048, "J_ratio": 1.000, "rebases": 0 }
+    },
+    "static_blink_32x24": {
+      "frames": 32,
+      "content": "16 static frames then 16 one-pixel blink frames",
+      "exhaustive": { "vole": 1486, "candidates": 27464, "work": 21071432, "winners": "rawx1 unchangedx15 sparsex16" },
+      "dsfb_guided": { "vole": 1486, "candidates": 1997, "work": 1542605, "N_ratio": 0.073, "J_ratio": 1.000, "rebases": 0 }
+    },
+    "regime_32x32": {
+      "frames": 78,
+      "content": "static textured scene -> wrap-by-7 -> noise -> whole-scene vertical pan",
+      "exhaustive": { "vole": 18240, "candidates": 90661, "work": 92792357, "winners": "rawx15 unchangedx23 copy_rectx22 exact_refx1 translationx17", "rebases": 14 },
+      "fixed_heuristic": { "vole": 40372, "candidates": 3112, "work": 3212328, "N_ratio": 0.034, "J_ratio": 2.213, "rebases": 36 },
+      "dsfb_guided": { "vole": 19246, "candidates": 16266, "work": 16703370, "N_ratio": 0.179, "J_ratio": 1.055, "rebases": 15 },
+      "guided_recovery_latency_frames": [0, 1, 0, 0, 0]
+    }
+  },
+  "all_streams_exact": true,
+  "notes": [
+    "J_ratio = strategy stream bytes / exhaustive stream bytes (same court, same input raster).",
+    "N_ratio = total candidates evaluated / exhaustive total; work_ratio = pixel-scan work estimate ratio.",
+    "Local rebase events (whole-frame RAW captures) counted per strategy: frame > 0, winner family raw, object declaration bytes > 0.",
+    "Regime switches are located from the oracle winner-family sequence; guided recovery latency = frames after the switch until the guided winner equals the oracle winner for the rest of the segment.",
+    "DSFB diagnostics phi (explanatory quality), omega (drift EWMA) and alpha (regime / broaden armed) are sampled in the log and asserted in tests/phase_h.rs.",
+    "Phase-G encode paths are unchanged under EncoderStrategy::Exhaustive (the default); the unified reset candidate made the library scan content-addressed."
+  ]
+}

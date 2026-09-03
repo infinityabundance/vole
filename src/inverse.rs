@@ -42,6 +42,7 @@ use std::collections::HashMap;
 use crate::{
     checked::ByteReader,
     decoder,
+    dsfb::{DsfbFrameDiag, DsfbModel, EncoderStrategy, FramePlan, Mode},
     encoder::encode_stream,
     error::VoleError,
     integr,
@@ -372,6 +373,11 @@ pub struct FrameDecision {
     /// True: the winner was committed to the real state and re-materialized
     /// through the normative path, byte-equal to the target.
     pub materialized_exact: bool,
+    /// Search work performed for this frame: candidate count + weighted pixel
+    /// scans (deterministic; encoder-side metric, never part of the stream).
+    pub search_work: u64,
+    /// DSFB diagnostics for this frame (None under non-guided strategies).
+    pub dsfb_diag: Option<DsfbFrameDiag>,
 }
 
 /// Search-space mode used for a run (canvas-size dependent).
@@ -396,7 +402,7 @@ pub struct BgSweep {
     pub chosen: u8,
 }
 
-/// Options controlling the Phase-G encoder.
+/// Options controlling the Phase-G/H encoder.
 #[derive(Debug, Clone)]
 pub struct EncodeOptions {
     /// Sweep the deterministic background candidate set (`{0,255}` ∪ frame-0
@@ -412,6 +418,9 @@ pub struct EncodeOptions {
     pub raster_only: bool,
     /// Translation window radius: candidates test `|dx|, |dy| <= r` per frame.
     pub translation_window: i64,
+    /// Search strategy (Phase H): Exhaustive (oracle) by default;
+    /// FixedHeuristic; DsfbGuided.
+    pub strategy: EncoderStrategy,
 }
 
 impl Default for EncodeOptions {
@@ -421,6 +430,7 @@ impl Default for EncodeOptions {
             background: None,
             raster_only: false,
             translation_window: 2,
+            strategy: EncoderStrategy::Exhaustive,
         }
     }
 }
@@ -462,26 +472,6 @@ pub struct EncodeReport {
 /// fully enumerated below a sample gate and row-hash-prefiltered above it.
 const TOROIDAL_CANDIDATE_GATE: u64 = 4096;
 const FULL_SCROLL_GATE: u64 = 16 * 1024;
-
-/// One declared-object library entry.
-#[derive(Debug, Clone)]
-struct LibObject {
-    id: u32,
-    w: u32,
-    h: u32,
-    content: Content,
-}
-
-impl LibObject {
-    fn content_matches(&self, target: &Canvas) -> bool {
-        match &self.content {
-            Content::Fill(v) => uniform_value(target) == Some(*v),
-            Content::Raster(data) => {
-                data.len() == target.as_slice().len() && data.as_slice() == target.as_slice()
-            }
-        }
-    }
-}
 
 /// A winning (or candidate) program plan.
 #[derive(Debug, Clone)]
@@ -542,6 +532,9 @@ struct Eval {
     /// Family label → (evaluated, valid, best_payload).
     fam: Vec<(&'static str, u64, u64, u64)>,
     order: u64,
+    /// Deterministic search-work estimate: candidate count + weighted pixel
+    /// scans performed by the family evaluations.
+    work: u64,
     best: Option<Cand>,
 }
 
@@ -550,12 +543,19 @@ impl Eval {
         Eval {
             fam: Vec::new(),
             order: 0,
+            work: 0,
             best: None,
         }
     }
 
+    /// Account for a deterministic amount of pixel-scan work (in samples).
+    fn add_work(&mut self, samples: u64) {
+        self.work = self.work.saturating_add(samples);
+    }
+
     fn consider(&mut self, c: Cand) {
         self.order += 1;
+        self.work = self.work.saturating_add(1);
         let family = c.label;
         let valid = c.valid;
         let payload = c.payload;
@@ -611,8 +611,8 @@ struct Encoder<'a> {
     frames: &'a [Canvas],
     opts: EncodeOptions,
     bg: u8,
-    library: Vec<LibObject>,
-    index: HashMap<[u8; 32], usize>,
+    /// Content identity → object id (exact reuse registry).
+    index: HashMap<[u8; 32], u32>,
     st: State,
     prev: Option<Canvas>,
     /// Live instances at the checkpoint (frame 0), for stream assembly.
@@ -621,6 +621,16 @@ struct Encoder<'a> {
     next_object_id: u32,
     next_instance_id: u32,
     search_space: SearchSpace,
+    /// Search strategy (Phase H).
+    strategy: EncoderStrategy,
+    /// DSFB model (present only under DsfbGuided).
+    model: Option<DsfbModel>,
+    /// The active per-frame evaluation plan (strategy-derived).
+    plan: FramePlan,
+    /// Copy ops emitted by the previous winning frame (probe replay).
+    last_copy_ops: Vec<Transition>,
+    /// Translation delta emitted by the previous winning frame (probe replay).
+    last_translation: Option<(i64, i64)>,
 }
 
 impl<'a> Encoder<'a> {
@@ -647,13 +657,14 @@ impl<'a> Encoder<'a> {
         };
         let mut st = State::new(crate::time::Interval::ZERO);
         st.set_background(bg);
+        let strategy = opts.strategy;
+        let model = (strategy == EncoderStrategy::DsfbGuided).then(DsfbModel::new);
         Ok(Encoder {
             w,
             h,
             frames,
             opts: opts.clone(),
             bg,
-            library: Vec::new(),
             index: HashMap::new(),
             st,
             prev: None,
@@ -662,7 +673,26 @@ impl<'a> Encoder<'a> {
             next_object_id: 1,
             next_instance_id: 1,
             search_space,
+            strategy,
+            model,
+            plan: FramePlan::full(),
+            last_copy_ops: Vec::new(),
+            last_translation: None,
         })
+    }
+
+    /// Resolve the per-frame evaluation plan from the strategy.
+    fn plan_for_frame(&mut self) -> FramePlan {
+        let plan = match self.strategy {
+            EncoderStrategy::Exhaustive => FramePlan::full(),
+            EncoderStrategy::FixedHeuristic => FramePlan::fixed_heuristic(),
+            EncoderStrategy::DsfbGuided => match &self.model {
+                Some(m) => m.plan(),
+                None => FramePlan::full(),
+            },
+        };
+        self.plan = plan.clone();
+        plan
     }
 
     fn content_of_target(&self, target: &Canvas) -> Content {
@@ -682,8 +712,8 @@ impl<'a> Encoder<'a> {
     /// working state, and return its object id.
     fn ensure_object(&mut self, content: Content) -> Result<u32, VoleError> {
         let cid = content_id(self.w, self.h, &content);
-        if let Some(&i) = self.index.get(&cid) {
-            return Ok(self.library[i].id);
+        if let Some(&id) = self.index.get(&cid) {
+            return Ok(id);
         }
         let id = self.next_object_id;
         self.next_object_id += 1;
@@ -692,13 +722,7 @@ impl<'a> Encoder<'a> {
             Content::Raster(data) => Object::raster(self.w, self.h, data.clone())?,
         };
         self.st.declare_object(ObjectId(id), obj)?;
-        self.index.insert(cid, self.library.len());
-        self.library.push(LibObject {
-            id,
-            w: self.w,
-            h: self.h,
-            content,
-        });
+        self.index.insert(cid, id);
         Ok(id)
     }
 
@@ -822,6 +846,8 @@ impl<'a> Encoder<'a> {
             emitted: Vec::new(),
             families: stats,
             materialized_exact: true,
+            search_work: ev.work,
+            dsfb_diag: None,
         });
         Ok(())
     }
@@ -831,21 +857,43 @@ impl<'a> Encoder<'a> {
     fn encode_frame(&mut self, k: usize) -> Result<(), VoleError> {
         let target = &self.frames[k];
         let limits = Limits::default();
-        let base = materialize::materialize_full(&self.st, self.w, self.h, &limits)?;
+        // The per-frame plan depends only on history (deterministic).
+        let plan = self.plan_for_frame();
         let mut ev = Eval::new();
+        let base = materialize::materialize_full(&self.st, self.w, self.h, &limits)?;
+        ev.add_work(u64::from(self.w) * u64::from(self.h));
+        let prev = self.prev.clone().expect("previous frame");
         let mut emitted_cost = 0u64;
 
         if self.opts.raster_only {
-            self.consider_raw(target, &mut ev);
+            self.consider_reset(target, &mut ev, true);
         } else {
-            self.consider_unchanged(target, &base, &mut ev);
-            self.consider_clears(target, &mut ev);
-            self.consider_exact_refs(target, &mut ev);
-            self.consider_sparse_and_residual(target, &base, &mut ev);
-            let prev = self.prev.clone().expect("previous frame");
-            self.consider_copies(target, &base, &prev, &mut ev);
-            self.consider_translation(target, &mut ev);
-            self.consider_raw(target, &mut ev);
+            if plan.unchanged {
+                self.consider_unchanged(target, &base, &mut ev);
+            }
+            if plan.clears == Mode::Full {
+                self.consider_clears(target, &mut ev);
+            }
+            // The reset candidate is the RAW sentinel: resetting to a fresh
+            // full-canvas object of the target's own content always reproduces
+            // the target exactly (RAW guarantee), so every plan evaluates it.
+            self.consider_reset(target, &mut ev, false);
+            if plan.sparse {
+                self.consider_sparse_and_residual(target, &base, &mut ev);
+            }
+            if plan.prev_diff {
+                self.consider_prev_diff(target, &base, &prev, &mut ev);
+            }
+            match plan.copies {
+                Mode::Full => self.consider_copies_full(target, &base, &prev, &mut ev),
+                Mode::Probe => self.consider_copies_probe(target, &base, &prev, &mut ev),
+                Mode::Off => {}
+            }
+            match plan.translation {
+                Mode::Full => self.consider_translation(target, &mut ev, false),
+                Mode::Probe => self.consider_translation(target, &mut ev, true),
+                Mode::Off => {}
+            }
         }
 
         let stats = ev.family_stats();
@@ -859,25 +907,34 @@ impl<'a> Encoder<'a> {
         let mut residual_points = 0u64;
         let mut decl = 0u64;
         match &winner.plan {
-            Plan::Unchanged => {}
+            Plan::Unchanged => {
+                self.last_copy_ops.clear();
+                self.last_translation = None;
+            }
             Plan::ClearToBg => {
                 for tr in [Transition::ClearInstances, Transition::ClearOverlay] {
                     tr.apply(&mut self.st)?;
                     emitted_cost += tr_len(&tr);
                     emitted.push(tr);
                 }
+                self.last_copy_ops.clear();
+                self.last_translation = None;
             }
             Plan::ClearInstancesOnly => {
                 let tr = Transition::ClearInstances;
                 tr.apply(&mut self.st)?;
                 emitted_cost += tr_len(&tr);
                 emitted.push(tr);
+                self.last_copy_ops.clear();
+                self.last_translation = None;
             }
             Plan::ClearOverlayOnly => {
                 let tr = Transition::ClearOverlay;
                 tr.apply(&mut self.st)?;
                 emitted_cost += tr_len(&tr);
                 emitted.push(tr);
+                self.last_copy_ops.clear();
+                self.last_translation = None;
             }
             Plan::Reset { new_content } => {
                 let content = self.content_of_target(target);
@@ -891,6 +948,8 @@ impl<'a> Encoder<'a> {
                     emitted_cost += tr_len(tr);
                     emitted.push(tr.clone());
                 }
+                self.last_copy_ops.clear();
+                self.last_translation = None;
             }
             Plan::Patch { pts } => {
                 residual_points = pts.len() as u64;
@@ -900,6 +959,8 @@ impl<'a> Encoder<'a> {
                 tr.apply(&mut self.st)?;
                 emitted_cost += tr_len(&tr);
                 emitted.push(tr);
+                self.last_copy_ops.clear();
+                self.last_translation = None;
             }
             Plan::Residual { block } => {
                 residual_points = decode_point_count(block, &limits);
@@ -907,8 +968,12 @@ impl<'a> Encoder<'a> {
                 emitted.push(Transition::Residual {
                     block: block.clone(),
                 });
+                self.last_copy_ops.clear();
+                self.last_translation = None;
             }
             Plan::Copies { ops } => {
+                self.last_copy_ops = copy_ops_only(ops);
+                self.last_translation = None;
                 for op in ops {
                     emitted_cost += tr_len(op);
                     emitted.push(op.clone());
@@ -916,6 +981,8 @@ impl<'a> Encoder<'a> {
             }
             Plan::CopyResidual { ops, block } => {
                 residual_points = decode_point_count(block, &limits);
+                self.last_copy_ops = copy_ops_only(ops);
+                self.last_translation = None;
                 for op in ops {
                     emitted_cost += tr_len(op);
                     emitted.push(op.clone());
@@ -940,16 +1007,19 @@ impl<'a> Encoder<'a> {
                 tr.apply(&mut self.st)?;
                 emitted_cost += tr_len(&tr);
                 emitted.push(tr);
+                self.last_copy_ops.clear();
+                self.last_translation = Some((*dx, *dy));
             }
             Plan::Advance => {
                 let tr = Transition::AdvanceTranslations;
                 tr.apply(&mut self.st)?;
                 emitted_cost += tr_len(&tr);
                 emitted.push(tr);
+                self.last_copy_ops.clear();
+                self.last_translation = None;
             }
         }
 
-        let prev = self.prev.clone().expect("previous frame");
         let mut canvas = materialize::materialize_full(&self.st, self.w, self.h, &limits)?;
         for tr in &emitted {
             if matches!(
@@ -968,18 +1038,28 @@ impl<'a> Encoder<'a> {
         }
         self.prev = Some(canvas);
 
+        let payload = INTERVAL_ENVELOPE + emitted_cost + decl;
+        let diag = match &mut self.model {
+            Some(m) => {
+                m.observe(winner.label, payload, ev.order);
+                Some(m.diagnostics(winner.label, payload))
+            }
+            None => None,
+        };
         self.decisions.push(FrameDecision {
             frame: k as u64,
             winner_family: winner.label,
             candidates_evaluated: ev.order,
             candidates_valid,
-            winner_payload_bytes: INTERVAL_ENVELOPE + emitted_cost + decl,
+            winner_payload_bytes: payload,
             winner_interval_bytes: INTERVAL_ENVELOPE + emitted_cost,
             object_decl_bytes: decl,
             residual_points,
             emitted,
             families: stats,
             materialized_exact: true,
+            search_work: ev.work,
+            dsfb_diag: diag,
         });
         Ok(())
     }
@@ -1036,29 +1116,11 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn consider_exact_refs(&self, target: &Canvas, ev: &mut Eval) {
-        for obj in &self.library {
-            if obj.w != self.w || obj.h != self.h {
-                continue;
-            }
-            let valid = obj.content_matches(target);
-            let mut c = Cand::new(
-                "exact_ref",
-                Plan::Reset { new_content: false },
-                RESET_INTERVAL_COST,
-            );
-            c.valid = valid;
-            if !valid {
-                c.invalid_reason = "object content differs from target";
-            }
-            ev.consider(c);
-        }
-    }
-
     fn consider_sparse_and_residual(&self, target: &Canvas, base: &Canvas, ev: &mut Eval) {
         if target.as_slice() == base.as_slice() {
             return; // unchanged covers the degenerate case
         }
+        ev.add_work(u64::from(self.w) * u64::from(self.h));
         let pts = diff_points(base, target);
         let k = pts.len() as u64;
         // Persistent overlay commit (state sparse). The commit reproduces the
@@ -1088,21 +1150,27 @@ impl<'a> Encoder<'a> {
         ev.consider(c);
     }
 
-    fn consider_raw(&mut self, target: &Canvas, ev: &mut Eval) {
+    /// The unified reset candidate — the RAW sentinel. Resetting the state to
+    /// one full-canvas instance of the target's own content always reproduces
+    /// the target exactly. When the content is new this stores a full raster
+    /// object (family `raw`); when the content already exists in the object
+    /// library it is exact reuse (family `exact_ref`, zero declaration bytes).
+    /// `force_raw` labels the reuse as `raw` (VOLE raster-only baseline mode).
+    fn consider_reset(&mut self, target: &Canvas, ev: &mut Eval, force_raw: bool) {
         let content = self.content_of_target(target);
+        ev.add_work(u64::from(self.w) * u64::from(self.h));
         let new = self.is_new_content(&content);
-        if !new && !self.opts.raster_only {
-            // Reuse of existing content is the exact_ref candidate; the RAW
-            // sentinel only needs to exist when it would store new bytes.
-            return;
-        }
-        let payload = RESET_INTERVAL_COST
-            + if new {
-                decl_bytes(self.w, self.h, &content)
-            } else {
-                0
-            };
-        let mut c = Cand::new("raw", Plan::Reset { new_content: true }, payload);
+        let label = if force_raw || new { "raw" } else { "exact_ref" };
+        let decl = if new {
+            decl_bytes(self.w, self.h, &content)
+        } else {
+            0
+        };
+        let mut c = Cand::new(
+            label,
+            Plan::Reset { new_content: new },
+            RESET_INTERVAL_COST + decl,
+        );
         c.valid = true;
         ev.consider(c);
     }
@@ -1118,6 +1186,7 @@ impl<'a> Encoder<'a> {
         op: Transition,
     ) {
         let limits = Limits::default();
+        ev.add_work(u64::from(self.w) * u64::from(self.h));
         let mut scratch = base.clone();
         if materialize::apply_canvas_op(&mut scratch, prev, &op, &limits).is_err() {
             return;
@@ -1150,8 +1219,13 @@ impl<'a> Encoder<'a> {
         ev.consider(c);
     }
 
-    fn consider_copies(&mut self, target: &Canvas, base: &Canvas, prev: &Canvas, ev: &mut Eval) {
-        let limits = Limits::default();
+    fn consider_copies_full(
+        &mut self,
+        target: &Canvas,
+        base: &Canvas,
+        prev: &Canvas,
+        ev: &mut Eval,
+    ) {
         if self.search_space == SearchSpace::Exhaustive {
             // 2D toroidal whole-canvas wrap scrolls when the candidate count
             // is small.
@@ -1206,11 +1280,83 @@ impl<'a> Encoder<'a> {
                 }
             }
         }
+    }
 
-        // Prev-frame diff: whole-canvas copy + one-shot residual (or a plain
-        // repeat when the frame is unchanged relative to the previous frame).
+    /// Probe evaluation of the COPY_RECT family: replay the previous winner's
+    /// rect ops when it was a copy program (steady scrolls reproduce exactly),
+    /// otherwise evaluate the small deterministic default probe (wraps and
+    /// vertical screen scrolls by 1..=DEFAULT_PROBE_SHIFTS).
+    fn consider_copies_probe(
+        &mut self,
+        target: &Canvas,
+        base: &Canvas,
+        prev: &Canvas,
+        ev: &mut Eval,
+    ) {
+        if !self.last_copy_ops.is_empty() {
+            self.consider_ops_program(target, base, prev, ev, self.last_copy_ops.clone());
+            return;
+        }
+        let s = crate::dsfb::DEFAULT_PROBE_SHIFTS;
+        for d in 1..=s {
+            self.wrap_candidate(target, base, prev, ev, 0, d);
+            self.wrap_candidate(target, base, prev, ev, d, 0);
+        }
+        for s2 in 1..=s {
+            let op = rect_op(0, s2, self.w, (self.h as i64 - s2) as u32, 0, 0);
+            self.screen_scroll_candidate(target, base, prev, ev, op);
+            let op = rect_op(0, 0, self.w, (self.h as i64 - s2) as u32, 0, s2);
+            self.screen_scroll_candidate(target, base, prev, ev, op);
+        }
+    }
+
+    /// Validate and consider one copy-ops program: when the ops reproduce the
+    /// target exactly it is a pure copy candidate; otherwise the exact
+    /// residual is appended (copy+residual candidate, always valid).
+    fn consider_ops_program(
+        &self,
+        target: &Canvas,
+        base: &Canvas,
+        prev: &Canvas,
+        ev: &mut Eval,
+        ops: Vec<Transition>,
+    ) {
+        let limits = Limits::default();
+        let wh = u64::from(self.w) * u64::from(self.h);
+        ev.add_work(wh.saturating_mul(ops.len() as u64 + 1));
+        let mut scratch = base.clone();
+        let ok = ops
+            .iter()
+            .all(|op| materialize::apply_canvas_op(&mut scratch, prev, op, &limits).is_ok());
+        if !ok {
+            return;
+        }
+        if scratch.as_slice() == target.as_slice() {
+            let payload = INTERVAL_ENVELOPE + 25 * ops.len() as u64;
+            let mut c = Cand::new("copy_rect", Plan::Copies { ops }, payload);
+            c.valid = true;
+            ev.consider(c);
+            return;
+        }
+        let pts = diff_points(&scratch, target);
+        if pts.is_empty() {
+            return;
+        }
+        let block = encode_point_block(&pts);
+        let payload = INTERVAL_ENVELOPE + 25 * ops.len() as u64 + 5 + block.len() as u64;
+        let mut c = Cand::new("copy_residual", Plan::CopyResidual { ops, block }, payload);
+        c.valid = true;
+        ev.consider(c);
+    }
+
+    /// Prev-frame diff: whole-canvas copy + one-shot residual (or a plain
+    /// repeat when the frame is unchanged relative to the previous frame).
+    fn consider_prev_diff(&self, target: &Canvas, base: &Canvas, prev: &Canvas, ev: &mut Eval) {
+        let limits = Limits::default();
+        let wh = u64::from(self.w) * u64::from(self.h);
         let op = rect_op(0, 0, self.w, self.h, 0, 0);
         let mut scratch = base.clone();
+        ev.add_work(wh.saturating_mul(2));
         if materialize::apply_canvas_op(&mut scratch, prev, &op, &limits).is_ok() {
             if scratch.as_slice() == target.as_slice() {
                 let mut c = Cand::new(
@@ -1254,6 +1400,7 @@ impl<'a> Encoder<'a> {
             return;
         }
         let limits = Limits::default();
+        ev.add_work(u64::from(self.w) * u64::from(self.h));
         let mut scratch = base.clone();
         let ok = ops
             .iter()
@@ -1306,7 +1453,9 @@ impl<'a> Encoder<'a> {
         rows_equal(target, prev, s as usize..self.h as usize, 0)
     }
 
-    fn consider_translation(&self, target: &Canvas, ev: &mut Eval) {
+    /// Whole-pixel instance translation. `probe` restricts evaluation to the
+    /// previous winning delta (steady motion), Full evaluates the window.
+    fn consider_translation(&self, target: &Canvas, ev: &mut Eval, probe: bool) {
         if self.st.instance_count() != 1 || self.st.overlay_len() > 0 {
             return;
         }
@@ -1323,40 +1472,48 @@ impl<'a> Encoder<'a> {
             Some(v) => Content::Fill(v),
             None => Content::Raster(obj.samples().expect("raster object").to_vec()),
         };
-        let r = self.opts.translation_window;
-        let mut any = false;
-        for dy in -r..=r {
-            for dx in -r..=r {
-                if dx == 0 && dy == 0 {
-                    continue;
+        let test = |dx: i64, dy: i64, ev: &mut Eval| {
+            ev.add_work(u64::from(self.w) * u64::from(self.h));
+            let valid = blit_matches(
+                &content,
+                self.w,
+                self.h,
+                target,
+                inst.x + dx,
+                inst.y + dy,
+                self.bg,
+            );
+            let mut c = Cand::new(
+                "translation",
+                Plan::SetPosition { dx, dy },
+                INTERVAL_ENVELOPE + 13,
+            );
+            c.valid = valid;
+            if !valid {
+                c.invalid_reason = "translated content differs from target";
+            }
+            ev.consider(c);
+        };
+        if probe {
+            if let Some((dx, dy)) = self.last_translation {
+                test(dx, dy, ev);
+            }
+        } else {
+            let r = self.opts.translation_window;
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    test(dx, dy, ev);
                 }
-                any = true;
-                let valid = blit_matches(
-                    &content,
-                    self.w,
-                    self.h,
-                    target,
-                    inst.x + dx,
-                    inst.y + dy,
-                    self.bg,
-                );
-                let mut c = Cand::new(
-                    "translation",
-                    Plan::SetPosition { dx, dy },
-                    INTERVAL_ENVELOPE + 13,
-                );
-                c.valid = valid;
-                if !valid {
-                    c.invalid_reason = "translated content differs from target";
-                }
-                ev.consider(c);
             }
         }
-        let _ = any;
         // Advance-only: the live instance carries a persistent translation and
         // a single advance reproduces the target.
         let (vx, vy) = self.st.velocity(inst.id);
         if vx != 0 || vy != 0 {
+            ev.add_work(u64::from(self.w) * u64::from(self.h));
             let valid = blit_matches(
                 &content,
                 self.w,
@@ -1468,6 +1625,14 @@ fn rect_op(sx: i64, sy: i64, width: u32, height: u32, dx: i64, dy: i64) -> Trans
         dst_x: dx,
         dst_y: dy,
     }
+}
+
+/// The COPY/MOVE ops of a winning program (the probe-replay geometry).
+fn copy_ops_only(trs: &[Transition]) -> Vec<Transition> {
+    trs.iter()
+        .filter(|t| matches!(t, Transition::CopyRect { .. } | Transition::MoveRect { .. }))
+        .cloned()
+        .collect()
 }
 
 /// Number of residual points a block decodes to (0 on any structural issue).
