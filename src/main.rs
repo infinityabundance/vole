@@ -21,9 +21,10 @@ fn main() -> Result<(), VoleError> {
         Some("decode") => cmd_decode(a),
         Some("verify") => cmd_verify(a),
         Some("bench") => cmd_bench(),
+        Some("statics") => cmd_statics(),
         other => {
             eprintln!("vole: unknown or missing subcommand: {:?}", other);
-            eprintln!("usage: vole <demo|decode|verify|bench> ...");
+            eprintln!("usage: vole <demo|decode|verify|bench|statics> ...");
             if other.is_some() {
                 Err(VoleError::ApiConstraint("unknown subcommand"))
             } else {
@@ -102,6 +103,18 @@ fn cmd_verify(mut a: impl Iterator<Item = String>) -> Result<(), VoleError> {
         parsed.height(),
         frames.len(),
         bytes.len()
+    );
+    Ok(())
+}
+
+fn cmd_statics() -> Result<(), VoleError> {
+    // Persistent static object across N intervals: an UNCHANGED lane estimate.
+    let court = demo::StaticSceneCourt::default();
+    let (stream, frames, raw) = court.account()?;
+    let per = stream as f64 / frames as f64;
+    println!(
+        "static: frames={} stream={}B raw_all={}B per_frame_amortized={:.3}B",
+        frames, stream, raw, per
     );
     Ok(())
 }

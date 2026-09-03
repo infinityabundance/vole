@@ -170,3 +170,92 @@ impl MovingRectCourt {
         u64::from(self.width) * u64::from(self.height) * self.frame_count()
     }
 }
+
+/// Phase-B static-scene court: a persistent object that never moves across many
+/// intervals. It demonstrates the **unchanged lane**: each interval advances
+/// time with zero transitions (nothing happened is a first-class, cheap
+/// representation), and it measures the *amortized* per-frame overhead of
+/// keeping that unchanged state persistent.
+pub struct StaticSceneCourt {
+    /// Canvas width.
+    pub width: u32,
+    /// Canvas height.
+    pub height: u32,
+    /// Declared object id.
+    pub object_id: u32,
+    /// Declared instance id.
+    pub instance_id: u32,
+    /// Number of static intervals.
+    pub intervals: u64,
+}
+
+impl Default for StaticSceneCourt {
+    fn default() -> Self {
+        StaticSceneCourt {
+            width: 1920,
+            height: 1080,
+            object_id: 1,
+            instance_id: 1,
+            intervals: 10_000,
+        }
+    }
+}
+
+impl StaticSceneCourt {
+    /// VOLE bytes: one persistent object + one instance at a fixed position and
+    /// only *empty* interval groups (unchanged state).
+    pub fn vole(&self) -> Result<Vec<u8>, VoleError> {
+        let obj = Object::fill(320, 40, 90)?; // a persistent UI strip, say
+        let inst = Instance {
+            id: InstanceId(self.instance_id),
+            object_id: ObjectId(self.object_id),
+            x: 0,
+            y: 20,
+        };
+        let mut timeline = Vec::with_capacity(self.intervals as usize);
+        for k in 1..=self.intervals {
+            timeline.push((k, Vec::new())); // empty: unchanged state lane
+        }
+        encoder::encode_stream(
+            self.width,
+            self.height,
+            0,
+            &[(self.object_id, obj)],
+            &[inst],
+            &timeline,
+        )
+    }
+
+    /// Materialize; every frame must equal the checkpoint view (static).
+    pub fn frames(&self) -> Result<Vec<Canvas>, VoleError> {
+        let parsed = decoder::decode_bytes(&self.vole()?)?;
+        decoder::materialize_all(&parsed)
+    }
+
+    /// All materialized frames must be identical (an unchanged frame is a
+    /// materializable view of persistent state, not a repeated raster store).
+    pub fn verify_static(&self) -> Result<u64, VoleError> {
+        let parsed = decoder::decode_bytes(&self.vole()?)?;
+        let frames = decoder::materialize_all(&parsed)?;
+        let f0 = frames.first().expect("checkpoint frame");
+        let mut unchanged = 0u64;
+        for f in &frames {
+            if f.exactly_matches(f0) {
+                unchanged += 1;
+            }
+        }
+        assert_eq!(unchanged, frames.len() as u64);
+        if unchanged != frames.len() as u64 {
+            return Err(VoleError::ApiConstraint("static scene diverged"));
+        }
+        Ok(parsed.frame_count())
+    }
+
+    /// Report (stream_bytes, frame_count, raw_all_bytes).
+    pub fn account(&self) -> Result<(u64, u64, u64), VoleError> {
+        let bytes = self.vole()?;
+        let flows = self.verify_static()?;
+        let raw = u64::from(self.width) * u64::from(self.height) * flows;
+        Ok((bytes.len() as u64, flows, raw))
+    }
+}

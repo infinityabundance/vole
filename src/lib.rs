@@ -40,6 +40,7 @@ pub mod universe;
 pub mod view;
 
 pub mod format;
+pub mod identity;
 mod integr;
 pub use crate::error::VoleError;
 pub use crate::limits::Limits;

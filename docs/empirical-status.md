@@ -14,9 +14,9 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Checkpoint | ADOPTED | Phase A restore/replay |
 | Interval transitions | ADOPTED | Phase A `SET_POSITION`/`CREATE_INSTANCE` |
 | Mutable instance position over time | ADOPTED | Phase A moving-rect court |
-| Unchanged-state lane | PROPOSED (Phase B) | pending |
-| Content addressing (BLAKE3 immutable objects) | PROPOSED (Phase B) | pending |
-| Exact object reuse / EXACT_REF | PROPOSED | pending |
+| Exact content identity (BLAKE3 immutable objects) | ADOPTED | Phase B `content_id_of` |
+| Same-content exact reuse (dedup registry counts) | ADOPTED | Phase B court |
+| Unchanged-state lane (zero-transition intervals) | ADOPTED | Phase B static court: 13.0 B/frame amortized |
 | Sparse patch | PROPOSED | pending |
 | COPY_RECT / MOVE_RECT | PROPOSED | pending |
 | Integer translation as persistent state | PARTIAL (Phase-A SET_POSITION) | court; trajectory form PROPOSED |

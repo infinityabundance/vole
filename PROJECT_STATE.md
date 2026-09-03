@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** `5ef838e` (Phase A sealed)
-**Current phase:** B (persistent object identity) — in progress.
+**Current head:** Phase B sealed (next commit)
+**Current phase:** B (persistent object identity) — sealed; next C.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
 
 ## Completed (measured, courted, sealed)
@@ -10,7 +10,11 @@
 manual `.vole` v1 writer/parser; Gray8 canvas; object table (fill/raw raster
 immutable objects); instance state; single checkpoint; exact restore & replay;
 `interval → materialize → FullFrame`; absolute `SetPosition`/`CreateInstance`
-transitions; BLAKE3 integrity trailer; typed `Limits`; hostile-input tests.*
+transitions; BLAKE3 integrity trailer; typed `Limits`; hostile-input tests.
+
+Phase B: exact content identity (BLAKE3 over canonical object record), a
+content→id reuse registry, and the unchanged-state lane; static court confirms
+10 001 identical views at ~13.0 B/frame (raw would be 20.7 GB).*
 
 Courts: moving-rect 1920×1080, 101 frames — VOLE stores 2,692 B (state +
 transitions); raw full-frame sequence would be 209,433,600 B. Materialized
@@ -20,9 +24,9 @@ integrity gates asserted typed. Court/Hostile tests, `cargo fmt/check/clippy
 
 ## In progress
 
-Phase B — persistent object identity: content hashing (BLAKE3), exact
-immutable reuse, `UNCHANGED` amortized-cost lane, object/instance lifetime
-accounting, reference validation.
+Phase C — sparse mutation & 2D copy/move once gated (order preserved).
+Persistent content identity next gains formal reuse across streams (Phase P,
+EntropyFS).
 
 ## Correct, decided, waiting
 
