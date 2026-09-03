@@ -21,14 +21,19 @@ Rust Phase-A domain model (see `src/state.rs`, `src/object.rs`):
 * An [`Instance`] is a mutable placement `(object_id, x, y)`.
 * A [`State`] holds `background`, the object table, and ordered instances.
 
-Later phases added to the domain model (`T_t`, transforms/trajectories):
+Later phases added to the domain model (`T_t`, transforms/trajectories; `M_t`, models/palettes):
 
 * per-instance persistent integer translation `(vx, vy)` (Phase E: applied
   once per `AdvanceTranslations`);
 * per-instance bounded parametric **trajectory programs** (Phase I: finite
   `Linear`/`Accel` segment lists in `src/trajectory.rs`; each program is
   stepped once per `AdvanceTrajectories`, deactivates when exhausted, and is
-  mutually exclusive with translation state on the same instance).
+  mutually exclusive with translation state on the same instance);
+* a mutable **palette table** plus per-instance palette bindings (Phase J:
+  palette-index objects — immutable one-byte index planes — render through
+  the entries of the palette bound to the painting instance, so `M_t` is now
+  real state: `G_t` carries `palettes` and `bindings` alongside the object
+  table, instances, velocities, and trajectories).
 
 ## Immutability vs mutation
 

@@ -152,8 +152,12 @@ pub(crate) fn apply_canvas_op(
 ///
 /// 1. Allocate a `width x height` canvas and fill it with `state.background`.
 /// 2. For each live instance in paint order, paint its immutable object over
-///    the canvas using the object’s top-left at the instance `(x, y)`; pixels
-///    overwrite. Portions outside the canvas are clipped.
+///    the canvas using the object's top-left at the instance `(x, y)`; pixels
+///    overwrite. Portions outside the canvas are clipped. A palette-index
+///    object paints by resolving every stored index through the palette bound
+///    to the instance (Phase J): a missing binding/palette is `UnknownPalette`
+///    and an index at or beyond the palette length is `OutOfBounds` — both
+///    typed, deterministic errors, never a wrap.
 /// 3. The returned canvas is the exact full-frame view of `state`.
 pub fn materialize_full(
     state: &State,
@@ -169,7 +173,7 @@ pub fn materialize_full(
         if acc > u64::from(limits.max_instances) {
             return Err(VoleError::MaterializationBudgetExceeded);
         }
-        paint_instance(&mut canvas, state, inst);
+        paint_instance(&mut canvas, state, inst)?;
     }
     // Sparse overlay: authoritative pixels painted above all instances, in
     // canonical coordinate order. Out-of-canvas coordinates are dropped.
@@ -184,29 +188,97 @@ pub fn materialize_full(
 }
 
 /// Bounded helper reused by per-frame and (later) partial views.
-fn paint_instance(canvas: &mut Canvas, state: &State, inst: &Instance) {
+fn paint_instance(canvas: &mut Canvas, state: &State, inst: &Instance) -> Result<(), VoleError> {
     match state.object(inst.object_id) {
-        Some(obj) => paint_object(canvas, obj, inst.x, inst.y),
+        Some(obj) => paint_object(canvas, state, obj, inst),
         None => {
             // Instances are only insertable when their object is declared, so
             // an absent object here is a state invariant broken by a buggy
             // builder; treat as skip to stay total & non-panicking. Decoders
             // additionally enforce this at transition apply time.
+            Ok(())
         }
     }
 }
 
-fn paint_object(canvas: &mut Canvas, obj: &Object, dx: i64, dy: i64) {
+fn paint_object(
+    canvas: &mut Canvas,
+    state: &State,
+    obj: &Object,
+    inst: &Instance,
+) -> Result<(), VoleError> {
+    let dx = inst.x;
+    let dy = inst.y;
     let w = obj.width();
     let h = obj.height();
-    match obj.samples() {
-        Some(raster) => canvas.blit(raster, w, h, dx, dy),
-        None => {
-            // Uniform fill object.
-            let value = obj.fill_value().unwrap_or(0);
-            canvas.fill_rect_clipped(value, dx, dy, dx + i64::from(w), dy + i64::from(h));
+    match obj.indices() {
+        // Palette-index raster: resolve every index through the instance's
+        // bound palette. Unbound instance or undeclared palette => typed
+        // error; index >= palette length => typed error (never a wrap).
+        Some(indices) => {
+            let palette_id = state.binding(inst.id).ok_or(VoleError::UnknownPalette)?;
+            let entries = state.palette(palette_id).ok_or(VoleError::UnknownPalette)?;
+            paint_index_raster(canvas, indices, w, h, dx, dy, entries)
+        }
+        None => match obj.samples() {
+            Some(raster) => {
+                canvas.blit(raster, w, h, dx, dy);
+                Ok(())
+            }
+            None => {
+                // Uniform fill object.
+                let value = obj.fill_value().unwrap_or(0);
+                canvas.fill_rect_clipped(value, dx, dy, dx + i64::from(w), dy + i64::from(h));
+                Ok(())
+            }
+        },
+    }
+}
+
+/// Palette-index blit: overwrite the box's clipped rectangle with
+/// `entries[idx]` for every stored index `idx`. Bounds behave exactly like
+/// `Canvas::blit` (clipped at the borders, out-of-canvas dropped); every
+/// index is validated against the palette length before it is written.
+fn paint_index_raster(
+    canvas: &mut Canvas,
+    indices: &[u8],
+    w: u32,
+    h: u32,
+    dx: i64,
+    dy: i64,
+    entries: &[u8],
+) -> Result<(), VoleError> {
+    debug_assert_eq!(indices.len() as u64, u64::from(w) * u64::from(h));
+    let cw = i64::from(canvas.width());
+    let ch = i64::from(canvas.height());
+    let y0 = dy.max(0);
+    let y1 = (dy + i64::from(h)).min(ch);
+    let x0 = dx.max(0);
+    let x1 = (dx + i64::from(w)).min(cw);
+    if y0 >= y1 || x0 >= x1 {
+        return Ok(());
+    }
+    // Reject any out-of-range index before writing a single pixel (a hostile
+    // index raster fails the whole frame deterministically, never partially).
+    for idx in indices {
+        if usize::from(*idx) >= entries.len() {
+            return Err(VoleError::OutOfBounds);
         }
     }
+    for cty in y0..y1 {
+        let sy = (cty - dy) as usize;
+        for ctox in x0..x1 {
+            let sx = (ctox - dx) as usize;
+            let idx = indices[sy * (w as usize) + sx];
+            let value = entries[usize::from(idx)];
+            canvas.set(
+                u32::try_from(ctox).unwrap(),
+                u32::try_from(cty).unwrap(),
+                value,
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Entry matching [`View`]. Phase A supports `FullFrame` only.

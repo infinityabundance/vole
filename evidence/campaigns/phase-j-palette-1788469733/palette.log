@@ -1,0 +1,6 @@
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/examples/palette_proof`
+accent-flag-1920x1080: frames=101 vole=2076110B raw_all=209433600B interval_bytes=2400B per_interval=24B sparse_floor_per_interval=204773B raw_per_frame=2073600B exact=true palette_ops=(set 0, patch 100) verify_ms=317.7
+rotate-flag-1920x1080: frames=101 vole=2076510B raw_all=209433600B interval_bytes=2800B per_interval=28B raw_per_frame=2073600B exact=true palette_ops=(set 100, patch 0)
+flattening-tax-240x160: frames=13 palette=38798B flattened=88507B total_ratio=2.28x interval_palette=288B interval_flattened=50016B interval_ratio=174x exact=true encode_ms=5
+static-palette-640x360: frames=201 vole=233110B marginal_per_interval=13B (unchanged lane 13.0B) exact=true note="palette content at rest is free"

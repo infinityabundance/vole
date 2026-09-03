@@ -72,6 +72,14 @@ struct Run {
 /// any acceptance.
 pub fn collapse_stream(bytes: &[u8]) -> Result<Option<Vec<u8>>, VoleError> {
     let original = decoder::decode_bytes(bytes)?;
+    // Palette-bearing streams are collapse fixpoints for now: rebuilding them
+    // requires re-emitting the pre-checkpoint palette records and checkpoint
+    // bindings, which belongs to the Phase-O optimize pass (exactness would be
+    // provable, but the pass is not wired for palettes yet).
+    let initial = original.clone_initial();
+    if initial.palette_count() > 0 || initial.binding_count() > 0 {
+        return Ok(None);
+    }
     let original_frames = decoder::materialize_all(&original)?;
     let runs = find_runs(&original)?;
     for run in runs {

@@ -25,6 +25,16 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct InstanceId(pub u32);
 
+/// Palette identity in format-v1 index space (Phase J). Zero is reserved as
+/// the wire sentinel for "no binding"; palettes are declared from id 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PaletteId(pub u32);
+
+impl PaletteId {
+    /// Wire sentinel: no palette binding.
+    pub const NONE: PaletteId = PaletteId(0);
+}
+
 /// A placed, orderable instance of an immutable object.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instance {
@@ -121,6 +131,16 @@ pub struct State {
     /// map means the instance carries no trajectory (stationary or
     /// velocity-driven).
     trajectories: BTreeMap<InstanceId, InstanceTrajectory>,
+    /// Palette table (Phase J): palette id → current entries. Entries are
+    /// mutable-by-transition state (a palette-index plane re-renders with new
+    /// gray values as its palette mutates). Palettes persist across instance
+    /// clearing and are bounded by `Limits.max_palettes` /
+    /// `Limits.max_palette_entries` at the stream layers.
+    palettes: BTreeMap<PaletteId, Vec<u8>>,
+    /// Per-instance palette bindings (Phase J). An instance bound to a
+    /// palette renders any palette-index object through that palette's
+    /// entries. Bindings die with their instances (`ClearInstances`).
+    bindings: BTreeMap<InstanceId, PaletteId>,
     /// Which interval this state snapshot was produced for (diagnostics and
     /// checkpoint anchoring; a fresh state is interval ZERO).
     interval: Interval,
@@ -135,6 +155,8 @@ impl Default for State {
             overlay: BTreeMap::new(),
             velocities: BTreeMap::new(),
             trajectories: BTreeMap::new(),
+            palettes: BTreeMap::new(),
+            bindings: BTreeMap::new(),
             interval: Interval::ZERO,
         }
     }
@@ -255,12 +277,14 @@ impl State {
 
     /// Remove every live instance. Paint order is cleared and instance ids are
     /// freed for reuse (Phase G: full-content replacement). Objects stay
-    /// declared; the background and overlay are untouched. Velocities and
-    /// trajectories die with their instances.
+    /// declared; the background, overlay, and palette table are untouched.
+    /// Velocities, trajectories, and palette bindings die with their
+    /// instances.
     pub fn clear_instances(&mut self) {
         self.instances.clear();
         self.velocities.clear();
         self.trajectories.clear();
+        self.bindings.clear();
     }
 
     /// Remove every persistent overlay point (Phase G: content replacement and
@@ -365,6 +389,90 @@ impl State {
     /// Borrow the live trajectory state of an instance.
     pub fn trajectory(&self, id: InstanceId) -> Option<&InstanceTrajectory> {
         self.trajectories.get(&id)
+    }
+
+    /// Replace (or declare) the palette `id` with `entries`. An empty entry
+    /// list or the reserved id zero is non-canonical. The entry-count bound
+    /// against `Limits.max_palette_entries` and the table bound against
+    /// `Limits.max_palettes` are enforced by the stream layers that own the
+    /// limits.
+    pub fn set_palette(&mut self, id: PaletteId, entries: Vec<u8>) -> Result<(), VoleError> {
+        if id == PaletteId::NONE || entries.is_empty() {
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+        self.palettes.insert(id, entries);
+        Ok(())
+    }
+
+    /// Patch palette entries: `(index, value)` pairs in canonical strictly
+    /// ascending index order (duplicates are non-canonical). Each index must
+    /// lie inside the palette's current length, and the palette must exist.
+    /// Returns a typed error on any violation; no partial mutation is left
+    /// behind.
+    pub fn patch_palette(&mut self, id: PaletteId, changes: &[(u8, u8)]) -> Result<(), VoleError> {
+        let entries = self
+            .palettes
+            .get_mut(&id)
+            .ok_or(VoleError::UnknownPalette)?;
+        let mut prev: Option<u8> = None;
+        for (idx, v) in changes {
+            if prev.is_some_and(|p| *idx <= p) {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            prev = Some(*idx);
+            let slot = entries
+                .get_mut(usize::from(*idx))
+                .ok_or(VoleError::OutOfBounds)?;
+            *slot = *v;
+        }
+        Ok(())
+    }
+
+    /// Whether the palette table carries `id`.
+    pub fn has_palette(&self, id: PaletteId) -> bool {
+        self.palettes.contains_key(&id)
+    }
+
+    /// Current entries of a palette.
+    pub fn palette(&self, id: PaletteId) -> Option<&[u8]> {
+        self.palettes.get(&id).map(|e| e.as_slice())
+    }
+
+    /// Number of distinct palettes.
+    pub fn palette_count(&self) -> usize {
+        self.palettes.len()
+    }
+
+    /// Bind an instance to a palette (Phase J). `PaletteId::NONE` unbinds.
+    /// The instance must exist; binding to a palette that does not exist yet
+    /// is a typed error (set the palette first).
+    pub fn bind_palette(
+        &mut self,
+        instance: InstanceId,
+        palette: PaletteId,
+    ) -> Result<(), VoleError> {
+        if !self.instances.iter().any(|i| i.id == instance) {
+            return Err(VoleError::UnknownInstance);
+        }
+        if palette == PaletteId::NONE {
+            self.bindings.remove(&instance);
+            return Ok(());
+        }
+        if !self.palettes.contains_key(&palette) {
+            return Err(VoleError::UnknownPalette);
+        }
+        self.bindings.insert(instance, palette);
+        Ok(())
+    }
+
+    /// Palette bound to an instance, if any.
+    pub fn binding(&self, instance: InstanceId) -> Option<PaletteId> {
+        self.bindings.get(&instance).copied()
+    }
+
+    /// Number of bound instances.
+    pub fn binding_count(&self) -> usize {
+        self.bindings.len()
     }
 
     /// Step every active trajectory exactly once (Phase I). For each

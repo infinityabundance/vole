@@ -1,0 +1,63 @@
+{
+  "phase": "J",
+  "semantics": "palette state as first-class procedural state: palette-index objects (0x05; immutable one-byte index planes, exact content identity), a mutable bounded palette table in G_t (0x06 pre-checkpoint records, SetPalette 0x2d whole replacement, PatchPalette 0x2e entry patches, strictly ascending and in-range), and per-instance palette bindings (0x08 checkpoint variant for frame-0 rendering; BindPalette 0x2f in intervals; palette 0 unbinds). Materialization resolves F = indices o entries(bound palette); a missing binding/palette is UnknownPalette and an index beyond the palette length is OutOfBounds (typed, deterministic). New limits max_palette_entries (256) and max_palettes (4096). Old streams parse unchanged (0x03 checkpoints, all prior tags).",
+  "limits_added": {
+    "max_palette_entries": 256,
+    "max_palettes": 4096
+  },
+  "courts": {
+    "accent_flag_1920x1080": {
+      "content": "whole-canvas window-UI index plane (title/sidebar/separators/body/status bar/cursor), accent entry alternates 200/60 each interval via one PatchPalette",
+      "frames": 101,
+      "vole_bytes": 2076110,
+      "raw_all_bytes": 209433600,
+      "interval_bytes": 2400,
+      "per_interval_bytes": 24,
+      "palette_ops": { "set_palette": 0, "patch_palette": 100 },
+      "palette_less_floors_per_interval": { "sparse": 204773, "raw_per_frame": 2073600 },
+      "margin_sparse_x": 8532,
+      "margin_raw_x": 86400,
+      "exact": true,
+      "note": "one-time index-plane declaration (2073600 B) dominates total bytes; the 24 B/interval is the maintenance cost of re-mapping a 2M-sample region whose structure never changes"
+    },
+    "rotate_flag_1920x1080": {
+      "content": "whole-palette value rotation each interval (classic color drift): every pixel of every frame changes",
+      "frames": 101,
+      "vole_bytes": 2076510,
+      "interval_bytes": 2800,
+      "per_interval_bytes": 28,
+      "palette_ops": { "set_palette": 100, "patch_palette": 0 },
+      "raw_per_frame": 2073600,
+      "exact": true
+    },
+    "flattening_tax_240x160": {
+      "content": "section-55 court on UI content: identical visual frames as (a) authored palette state and (b) rasterized then inverse-proceduralized (Phase G whole-frame encoder; no palette family yet)",
+      "frames": 13,
+      "palette_bytes": 38798,
+      "flattened_bytes": 88507,
+      "total_ratio_x": 2.28,
+      "interval_palette_bytes": 288,
+      "interval_flattened_bytes": 50016,
+      "interval_ratio_x": 174,
+      "exact": true,
+      "note": "the measured cost of flattening palette structure into rasters; palette discovery in the raster encoder is Phase O/Q"
+    },
+    "static_palette_640x360": {
+      "content": "palette content established then 200 zero-transition intervals",
+      "frames": 201,
+      "vole_bytes": 233110,
+      "marginal_per_interval_bytes": 13,
+      "unchanged_lane_bytes_per_frame": 13,
+      "note": "palette content at rest is free",
+      "exact": true
+    }
+  },
+  "all_streams_exact": true,
+  "test_count": "tests/phase_j.rs (12) + tests/malformed.rs (9 new Phase-J hostile) + identity/accounting units; full gate: cargo fmt --check, cargo check --all-targets, cargo clippy --all-targets --all-features -- -D warnings, cargo test --all-features (143 tests, 0 failures, dev and release)",
+  "notes": [
+    "Index validity and palette presence are enforced at materialization time (typed errors), never at parse time: the palette is authoritative at render time, mirroring the residual algebra's render-time checks.",
+    "Bindings die with their instances (ClearInstances); palettes persist for reuse.",
+    "Palette streams are trajectory-collapse fixpoints (rebuild path for palettes is Phase O).",
+    "Accounting: pre-checkpoint palette-table records are state_bytes (no longer always 0); palette-index object declarations are object_bytes with an informational index_object_bytes split (index samples are structural, not RAW fallback)."
+  ]
+}

@@ -29,6 +29,9 @@ independently re-derived reference in `proof/`.
 | Phase I: trajectory materialization == independent closed-form painter, all frames | PASS |
 | Phase I: closed-form simulator == normative state stepper (200 random programs) | PASS |
 | Phase I: trajectory collapse decode-identical and strictly smaller | PASS |
+| Phase J: palette-index materialization == independent palette painter, all frames | PASS |
+| Phase J: palette ops (0x06/0x08/0x2d–0x2f) round-trip and hostile forms fail typed | PASS |
+| Phase J: palette accounting buckets (state_bytes, index_object_bytes) sum to total | PASS |
 
 ## Goldens
 

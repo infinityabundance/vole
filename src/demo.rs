@@ -9,7 +9,7 @@ use crate::{
     format::ParsedStream,
     object::{Object, ObjectId},
     pixel::Canvas,
-    state::{Instance, InstanceId},
+    state::{Instance, InstanceId, PaletteId},
     trajectory::{self, TrajectorySegment},
     transition::Transition,
 };
@@ -932,4 +932,274 @@ impl TrajectoryCourt {
     pub fn raw_bytes_all(&self) -> u64 {
         u64::from(self.width) * u64::from(self.height) * self.frame_count()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase J — palette state courts
+// ---------------------------------------------------------------------------
+
+/// How a [`PaletteCourt`] mutates its palette over time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaletteMode {
+    /// The accent entry (and only that entry) takes the next cycle value each
+    /// interval — one `PatchPalette` per frame. Frame `k` shows `cycle[k %
+    /// cycle.len()]` (frame 0 shows `cycle[0]`, laid down by the checkpoint
+    /// palette).
+    AccentCycle,
+    /// The whole palette's values rotate by one position each interval (the
+    /// classic color-drift animation): frame `k` shows
+    /// `entries[i] = base[(i + k) % base.len()]` — one `SetPalette` per frame.
+    RotateAll,
+}
+
+/// Deterministic window-UI index plane (Phase J content): a palette-index
+/// box with a title bar, a sidebar, a body, horizontal separators, an accent
+/// status bar, and a small cursor cell. Row-major `w*h` indices:
+/// `0` body · `1` title bar · `2` sidebar · `3` separators · `4` accent bar ·
+/// `5` cursor.
+pub fn window_ui_indices(
+    w: u32,
+    h: u32,
+    title_h: u32,
+    side_w: u32,
+    sep_every: u32,
+    status_h: u32,
+) -> Vec<u8> {
+    assert!(w >= side_w && h >= title_h + status_h + 2);
+    let mut out = Vec::with_capacity((w * h) as usize);
+    let (cw, ch) = (w as i64, h as i64);
+    // A deterministic cursor cell in the lower body.
+    let (cur_x, cur_y) = (cw / 2, ch - status_h as i64 - 8);
+    for y in 0..ch {
+        for x in 0..cw {
+            let idx = if y < title_h as i64 {
+                1
+            } else if x < side_w as i64 {
+                2
+            } else if y >= ch - status_h as i64 {
+                4
+            } else if x >= cur_x && x < cur_x + 2 && y >= cur_y && y < cur_y + 2 {
+                5
+            } else if sep_every > 0 && (y as u32 - title_h).is_multiple_of(sep_every) {
+                3
+            } else {
+                0
+            };
+            out.push(idx);
+        }
+    }
+    out
+}
+
+/// Base entries for the window-UI plane (indices 0..=5):
+/// `[body, title, sidebar, separator, accent(init), cursor]`.
+pub fn window_ui_entries() -> Vec<u8> {
+    vec![30, 255, 200, 128, 200, 0]
+}
+
+/// Rotate `entries` left by `shift` (used by the `RotateAll` mode on both the
+/// encode and the reference side).
+pub fn rotate_palette(entries: &[u8], shift: u64) -> Vec<u8> {
+    let n = entries.len() as u64;
+    (0..entries.len())
+        .map(|i| entries[((i as u64 + shift) % n) as usize])
+        .collect()
+}
+
+/// Phase-J direct-procedural court: one palette-index object (a whole-box
+/// index plane) bound to one palette; the palette mutates every interval
+/// while the *index plane never changes*. Frames are materialized views of
+/// `indices ∘ entries(t)` — never stored rasters and never per-frame index
+/// rewrites.
+///
+/// The reference raster is an **independent** painter that maps the index
+/// plane through the mode's analytic per-frame entry table, so a shared
+/// mapping bug cannot mask a mismatch.
+pub struct PaletteCourt {
+    /// Canvas width / height.
+    pub width: u32,
+    pub height: u32,
+    /// Canvas background sample.
+    pub background: u8,
+    /// Index-plane box geometry and placement (painted clipped at this
+    /// top-left).
+    pub box_x: i64,
+    pub box_y: i64,
+    pub box_w: u32,
+    pub box_h: u32,
+    /// Object / instance / palette ids.
+    pub object_id: u32,
+    pub instance_id: u32,
+    pub palette_id: u32,
+    /// Row-major index plane (box width × box height).
+    pub indices: Vec<u8>,
+    /// Palette entries at frame 0.
+    pub base_entries: Vec<u8>,
+    /// Mutation mode.
+    pub mode: PaletteMode,
+    /// Accent index and cycle values (`AccentCycle` mode).
+    pub accent_index: u8,
+    pub cycle: Vec<u8>,
+    /// Number of intervals (frames == intervals + 1).
+    pub intervals: u64,
+}
+
+impl PaletteCourt {
+    fn entries_at(&self, frame: u64) -> Vec<u8> {
+        match self.mode {
+            PaletteMode::AccentCycle => {
+                let mut e = self.base_entries.clone();
+                let v = self.cycle[(frame as usize) % self.cycle.len()];
+                e[self.accent_index as usize] = v;
+                e
+            }
+            PaletteMode::RotateAll => rotate_palette(&self.base_entries, frame),
+        }
+    }
+
+    fn check(&self) -> Result<(), VoleError> {
+        if self.base_entries.is_empty()
+            || self.base_entries.len() > 256
+            || self.cycle.is_empty()
+            || self.indices.len() as u64 != u64::from(self.box_w) * u64::from(self.box_h)
+        {
+            return Err(VoleError::ApiConstraint("bad palette court parameters"));
+        }
+        if self.mode == PaletteMode::AccentCycle
+            && usize::from(self.accent_index) >= self.base_entries.len()
+        {
+            return Err(VoleError::ApiConstraint("accent index outside the palette"));
+        }
+        // Every index in the plane must be mappable at every frame.
+        let max_idx = *self.indices.iter().max().unwrap_or(&0);
+        if usize::from(max_idx) >= self.base_entries.len() {
+            return Err(VoleError::ApiConstraint(
+                "index plane exceeds the palette length",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Canonical `.vole` bytes: one palette declaration + one index object +
+    /// one bound instance at the checkpoint, then one tiny palette mutation
+    /// per interval — never stored rasters, never per-frame index rewrites.
+    pub fn vole(&self) -> Result<Vec<u8>, VoleError> {
+        self.check()?;
+        let obj = Object::index_raster(self.box_w, self.box_h, self.indices.clone())?;
+        let inst = Instance {
+            id: InstanceId(self.instance_id),
+            object_id: ObjectId(self.object_id),
+            x: self.box_x,
+            y: self.box_y,
+        };
+        let mut timeline = Vec::with_capacity(self.intervals as usize);
+        for k in 1..=self.intervals {
+            let tr = match self.mode {
+                PaletteMode::AccentCycle => Transition::PatchPalette {
+                    id: PaletteId(self.palette_id),
+                    changes: vec![(
+                        self.accent_index,
+                        self.cycle[(k as usize) % self.cycle.len()],
+                    )],
+                },
+                PaletteMode::RotateAll => Transition::SetPalette {
+                    id: PaletteId(self.palette_id),
+                    entries: rotate_palette(&self.base_entries, k),
+                },
+            };
+            timeline.push((k, vec![tr]));
+        }
+        encoder::encode_palette_stream(
+            self.width,
+            self.height,
+            self.background,
+            &[(self.object_id, obj)],
+            &[(self.palette_id, self.base_entries.clone())],
+            &[(inst, Some(PaletteId(self.palette_id)))],
+            &timeline,
+        )
+    }
+
+    /// Independent reference `.raw` frames: a separate painter loop maps the
+    /// index plane through the mode's analytic per-frame entries.
+    pub fn reference_raw(&self) -> Result<Vec<u8>, VoleError> {
+        let mut raw = Vec::new();
+        for f in 0..=self.intervals {
+            let entries = self.entries_at(f);
+            raw.extend(palette_reference_painter(
+                self.width,
+                self.height,
+                self.background,
+                self.box_x,
+                self.box_y,
+                &self.indices,
+                self.box_w,
+                self.box_h,
+                &entries,
+            ));
+        }
+        Ok(raw)
+    }
+
+    /// Materialize and byte-exact verify against the independent reference.
+    pub fn materialize_and_verify(&self) -> Result<Vec<Canvas>, VoleError> {
+        let parsed = decoder::decode_bytes(&self.vole()?)?;
+        let frames = decoder::materialize_all(&parsed)?;
+        let mut got = Vec::new();
+        for c in &frames {
+            got.extend_from_slice(c.as_slice());
+        }
+        if got != self.reference_raw()? {
+            return Err(VoleError::ApiConstraint(
+                "palette court diverged from reference",
+            ));
+        }
+        Ok(frames)
+    }
+
+    /// Number of materializable frames.
+    pub fn frame_count(&self) -> u64 {
+        1 + self.intervals
+    }
+
+    /// Total raw raster bytes of the canonical frame sequence.
+    pub fn raw_bytes_all(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height) * self.frame_count()
+    }
+}
+
+/// Independent palette painter: fill the canvas with `bg`, then overwrite the
+/// index box (clipped) mapping every index through `entries`. Structurally
+/// distinct from the materializer's `Canvas` path.
+#[allow(clippy::too_many_arguments)] // 9 ordered painter params (geometry + entries)
+fn palette_reference_painter(
+    width: u32,
+    height: u32,
+    bg: u8,
+    bx: i64,
+    by: i64,
+    indices: &[u8],
+    bw: u32,
+    bh: u32,
+    entries: &[u8],
+) -> Vec<u8> {
+    let w = width as usize;
+    let mut out = vec![bg; w * height as usize];
+    for sy in 0..bh as i64 {
+        let cy = by + sy;
+        if cy < 0 || cy >= i64::from(height) {
+            continue;
+        }
+        let src_row = sy as usize * bw as usize;
+        let dst_row = cy as usize * w;
+        for sx in 0..bw as i64 {
+            let cx = bx + sx;
+            if cx < 0 || cx >= i64::from(width) {
+                continue;
+            }
+            let idx = indices[src_row + sx as usize];
+            out[dst_row + cx as usize] = entries[idx as usize];
+        }
+    }
+    out
 }

@@ -81,6 +81,9 @@ fn tr_len(tr: &Transition) -> u64 {
         Transition::SetTrajectory { segments, .. } => {
             crate::trajectory::program_wire_bytes(segments)
         }
+        Transition::SetPalette { entries, .. } => 9 + entries.len() as u64,
+        Transition::PatchPalette { changes, .. } => 9 + 2 * changes.len() as u64,
+        Transition::BindPalette { .. } => 9,
         Transition::PatchSparse { points } => 5 + 9 * points.len() as u64,
         Transition::CopyRect { .. } | Transition::MoveRect { .. } => 25,
         Transition::Residual { block } => 5 + block.len() as u64,
@@ -180,13 +183,14 @@ fn block_is_rans(block: &[u8]) -> bool {
 
 /// Complete physical accounting of a `.vole` byte stream with every byte
 /// classified into a declared bucket. The ten primary buckets sum to
-/// `total_bytes`; the two `*_split` fields are informational sub-buckets of
+/// `total_bytes`; the three `*_split` fields are informational sub-buckets of
 /// `object_bytes` and are excluded from that invariant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RepresentationCost {
     /// Stream header (magic, binding, geometry).
     pub header_bytes: u64,
-    /// Immutable object declarations (descriptor + samples).
+    /// Immutable object declarations (descriptor + samples), including
+    /// palette-index objects.
     pub object_bytes: u64,
     /// The checkpoint record (background + interval-0 instances).
     pub checkpoint_bytes: u64,
@@ -196,8 +200,9 @@ pub struct RepresentationCost {
     pub residual_bytes: u64,
     /// Inline entropy models inside residual blocks.
     pub model_bytes: u64,
-    /// Persistent procedural state snapshot bytes (0 in v1: state is laid down
-    /// by the checkpoint and transitions, already counted above).
+    /// Persistent procedural state declarations (Phase J: the pre-checkpoint
+    /// palette-table records that initialize mutable palette state; 0 in
+    /// streams without palettes).
     pub state_bytes: u64,
     /// Shared dictionary bytes (0 in v1).
     pub dictionary_bytes: u64,
@@ -207,11 +212,14 @@ pub struct RepresentationCost {
     pub integrity_bytes: u64,
     /// Total stream bytes.
     pub total_bytes: u64,
-    /// Informational: raster-object declarations (tag + id + geometry +
+    /// Informational: Gray8 raster-object declarations (tag + id + geometry +
     /// samples); a sub-bucket of `object_bytes`.
     pub raster_object_bytes: u64,
     /// Informational: fill-object declarations; a sub-bucket of `object_bytes`.
     pub fill_object_bytes: u64,
+    /// Informational: palette-index object declarations; a sub-bucket of
+    /// `object_bytes` (index planes are structural, not RAW fallback).
+    pub index_object_bytes: u64,
     /// Informational: the literal Gray8 samples inside raster objects (the
     /// RAW fallback payload of the stream).
     pub raster_object_sample_bytes: u64,
@@ -249,7 +257,9 @@ pub fn account_stream(bytes: &[u8]) -> Result<RepresentationCost, VoleError> {
     };
     let mut raster_objects = 0u64;
     let mut fill_objects = 0u64;
+    let mut index_objects = 0u64;
     let mut raster_samples = 0u64;
+    let mut index_samples = 0u64;
     // Header is fixed width (24 bytes): magic(4)+reserved(1)+fver(2)+univ(4)+
     // profile(1)+feature(4)+w(4)+h(4).
     cost.header_bytes = 24;
@@ -273,11 +283,41 @@ pub fn account_stream(bytes: &[u8]) -> Result<RepresentationCost, VoleError> {
                 let _v = r.u8()?;
                 fill_objects += 1;
             }
-            0x03 => {
+            0x05 => {
+                // Palette-index object declaration (Phase J).
+                let _id = r.pull::<u32>()?;
+                let w = r.pull::<u32>()?;
+                let h = r.pull::<u32>()?;
+                let n = u64::from(w) * u64::from(h);
+                r.skip(usize::try_from(n).map_err(|_| VoleError::ArithmeticOverflow)?)?;
+                index_objects += 1;
+                index_samples += n;
+            }
+            0x06 => {
+                // Pre-checkpoint palette-table record (Phase J): mutable
+                // procedural state initialization.
+                let _id = r.pull::<u32>()?;
+                let len = r.pull::<u32>()?;
+                if u64::from(len) > u64::from(limits.max_palette_entries) {
+                    return Err(VoleError::DimensionTooLarge);
+                }
+                if len == 0 {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+                r.skip(len as usize)?;
+                cost.state_bytes += 9 + u64::from(len);
+            }
+            0x03 | 0x08 => {
+                let with_bindings = tag == 0x08;
                 let _bg = r.u8()?;
                 let n = r.pull::<u32>()?;
-                r.skip(16 * n as usize)?;
-                cost.checkpoint_bytes += checkpoint_bytes(u64::from(n));
+                if with_bindings {
+                    r.skip(20 * n as usize)?;
+                    cost.checkpoint_bytes += 6 + 20 * u64::from(n);
+                } else {
+                    r.skip(16 * n as usize)?;
+                    cost.checkpoint_bytes += checkpoint_bytes(u64::from(n));
+                }
             }
             0x04 => {
                 let _t = r.pull::<u64>()?;
@@ -308,6 +348,31 @@ pub fn account_stream(bytes: &[u8]) -> Result<RepresentationCost, VoleError> {
                         }
                         0x2c => {
                             cost.transition_bytes += 1;
+                        }
+                        0x2d => {
+                            let _id = r.pull::<u32>()?;
+                            let len = r.pull::<u32>()?;
+                            if u64::from(len) > u64::from(limits.max_palette_entries) {
+                                return Err(VoleError::DimensionTooLarge);
+                            }
+                            if len == 0 {
+                                return Err(VoleError::NonCanonicalEncoding);
+                            }
+                            r.skip(len as usize)?;
+                            cost.transition_bytes += 9 + u64::from(len);
+                        }
+                        0x2e => {
+                            let _id = r.pull::<u32>()?;
+                            let m = r.pull::<u32>()?;
+                            if u64::from(m) > 256 {
+                                return Err(VoleError::NonCanonicalEncoding);
+                            }
+                            r.skip(2 * m as usize)?;
+                            cost.transition_bytes += 9 + 2 * u64::from(m);
+                        }
+                        0x2f => {
+                            r.skip(8)?;
+                            cost.transition_bytes += 9;
                         }
                         0x2b => {
                             let _id = r.pull::<u32>()?;
@@ -350,7 +415,8 @@ pub fn account_stream(bytes: &[u8]) -> Result<RepresentationCost, VoleError> {
     cost.integrity_bytes = 32;
     cost.raster_object_bytes = raster_objects * OBJECT_DECL_HEADER + raster_samples;
     cost.fill_object_bytes = fill_objects * FILL_DECL;
-    cost.object_bytes = cost.raster_object_bytes + cost.fill_object_bytes;
+    cost.index_object_bytes = index_objects * OBJECT_DECL_HEADER + index_samples;
+    cost.object_bytes = cost.raster_object_bytes + cost.fill_object_bytes + cost.index_object_bytes;
     cost.raster_object_sample_bytes = raster_samples;
     Ok(cost)
 }

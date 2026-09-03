@@ -30,6 +30,12 @@ pub enum ObjectKindKind {
     Fill,
     /// A literal Gray8 raster, tight row-major.
     RawRaster,
+    /// A palette-index raster (Phase J): tight row-major **indices** into a
+    /// palette bound to the painting instance; the materializer maps every
+    /// index through the active palette to produce Gray8 samples. Indices are
+    /// one byte, so an index raster is a *structure* view: the same index
+    /// plane re-renders with different gray values as the palette mutates.
+    IndexRaster,
     // Later phases: EXACT_REF, PALETTE, DICTIONARY, GENERATOR, RESIDUAL_TEMPLATE
 }
 
@@ -39,7 +45,8 @@ pub struct Object {
     kind: ObjectKindKind,
     width: u32,
     height: u32,
-    /// Raster samples (for RawRaster) length == w*h, or one byte for Fill.
+    /// Raster samples (RawRaster), index samples (IndexRaster), or one byte
+    /// (Fill): length == w*h for raster/index kinds, 1 for Fill.
     storage: Vec<u8>,
 }
 
@@ -74,6 +81,26 @@ impl Object {
         })
     }
 
+    /// Object carrying a palette-index raster (Phase J): every stored byte is
+    /// an index into the palette bound to the painting instance (valid range
+    /// `0..palette_len`, enforced at materialization). Geometry/length rules
+    /// mirror [`Object::raster`].
+    pub fn index_raster(width: u32, height: u32, data: Vec<u8>) -> Result<Self, VoleError> {
+        if width == 0 || height == 0 {
+            return Err(VoleError::DimensionTooLarge);
+        }
+        let n = u64::from(width) * u64::from(height);
+        if data.len() as u64 != n {
+            return Err(VoleError::LengthMismatch);
+        }
+        Ok(Self {
+            kind: ObjectKindKind::IndexRaster,
+            width,
+            height,
+            storage: data,
+        })
+    }
+
     /// Object construction kind.
     pub fn kind(&self) -> ObjectKindKind {
         self.kind
@@ -95,14 +122,15 @@ impl Object {
     }
 
     /// Materialize the object's samples into a tight row-major buffer of
-    /// `width*height` bytes. Cheap for Fill (replicates), cheap for RawRaster.
+    /// `width*height` bytes. Cheap for Fill (replicates), cheap for RawRaster
+    /// and IndexRaster (both store their content tightly).
     pub fn expand(&self) -> Vec<u8> {
         match self.kind {
             ObjectKindKind::Fill => {
                 let n = (self.width as usize) * (self.height as usize);
                 vec![self.storage[0]; n]
             }
-            ObjectKindKind::RawRaster => self.storage.clone(),
+            ObjectKindKind::RawRaster | ObjectKindKind::IndexRaster => self.storage.clone(),
         }
     }
 
@@ -113,17 +141,27 @@ impl Object {
     pub fn fill_value(&self) -> Option<u8> {
         match self.kind {
             ObjectKindKind::Fill => Some(self.storage[0]),
-            ObjectKindKind::RawRaster => None,
+            ObjectKindKind::RawRaster | ObjectKindKind::IndexRaster => None,
         }
     }
 
-    /// Tight row-major raster bytes *iff* this object already stores its
-    /// expanded samples (RawRaster). Returns `None` for fills (which expand on
-    /// demand).
+    /// Tight row-major Gray8 raster bytes *iff* this object already stores its
+    /// expanded Gray8 samples (RawRaster). Returns `None` for fills (which
+    /// expand on demand) and for index rasters (whose bytes are palette
+    /// indices, not samples — see [`Object::indices`]).
     pub fn samples(&self) -> Option<&[u8]> {
         match self.kind {
             ObjectKindKind::RawRaster => Some(&self.storage),
-            ObjectKindKind::Fill => None,
+            ObjectKindKind::Fill | ObjectKindKind::IndexRaster => None,
+        }
+    }
+
+    /// Tight row-major palette-index bytes *iff* this object is an index
+    /// raster (Phase J).
+    pub fn indices(&self) -> Option<&[u8]> {
+        match self.kind {
+            ObjectKindKind::IndexRaster => Some(&self.storage),
+            ObjectKindKind::Fill | ObjectKindKind::RawRaster => None,
         }
     }
 }

@@ -33,21 +33,33 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
 ```
 0x01 obj:u32 w:u32 h:u32 (w*h) gray-sample   // raw raster object
 0x02 obj:u32 w:u32 h:u32 v:u8                // uniform fill object
+0x05 obj:u32 w:u32 h:u32 (w*h) index-byte    // palette-index raster (Phase J)
+0x06 pal:u32 len:u32 (len) entry:u8          // palette-table declaration (Phase J)
 ```
 
-* `w*h` must not exceed the active `max_object_bytes`.
-* Duplicate `obj` ids ⇒ `DuplicateId`.
-* After the checkpoint tag, object-declaration bytes are non-canonical
-  (`NonCanonicalEncoding`).
+* `w*h` must not exceed the active `max_object_bytes` (also for index planes).
+* `0x05` samples are **palette indices** (not Gray8 samples); they render only
+  through a palette bound to the painting instance (see the checkpoint and
+  `0x2f`).
+* `0x06` initializes mutable palette state before the checkpoint: `len` in
+  `1..=max_palette_entries`, `pal` ≠ 0, at most `max_palettes` palettes.
+* Duplicate `obj`/`pal` ids ⇒ `DuplicateId`.
+* After the checkpoint tag, object/palette-declaration bytes are
+  non-canonical (`NonCanonicalEncoding`).
 
 ### Checkpoint
 
 ```
-0x03 bg:u8 n:u32  ( iid:u32 oid:u32 x:i32 y:i32 )^n
+0x03 bg:u8 n:u32  ( iid:u32 oid:u32 x:i32 y:i32 )^n           // no bindings
+0x08 bg:u8 n:u32  ( iid:u32 oid:u32 x:i32 y:i32 pal:u32 )^n   // with palette bindings
 ```
 
 * Instances are in paint order; `oid` must already be declared
   (`UnknownObject`), `iid` unique (`DuplicateId`).
+* `0x08` (Phase J) additionally carries each instance's palette binding
+  (`pal = 0` means unbound). A bound palette must already be declared
+  (`UnknownPalette`). Streams without any binding use `0x03`; old files never
+  contain `0x08`.
 * `n` ≤ `max_instances`.
 * Exactly one checkpoint per v1 stream.
 
@@ -104,6 +116,18 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
     each trajectory-carrying instance moves by its current velocity and its
     segment/velocity state updates per `0x2b` semantics; a program whose
     final segment is exhausted deactivates.
+  * `0x2d id:u32 len:u32 entries(len)` — replace (or declare) the whole
+    palette `id` (Phase J): mutable palette-table state; `len` in
+    `1..=max_palette_entries`, `id` ≠ 0, table bounded by `max_palettes`.
+  * `0x2e id:u32 count:u32 (idx:u8 v:u8)^count` — patch palette entries
+    (Phase J): `idx` strictly ascending, `count ≤ 256`, every `idx` inside
+    the palette's current length (`OutOfBounds` otherwise), palette must
+    exist (`UnknownPalette`).
+  * `0x2f iid:u32 pal:u32` — bind instance `iid` to palette `pal` (Phase J);
+    `pal = 0` unbinds. The instance must exist; binding to an undeclared
+    palette is `UnknownPalette` (palettes are set before they are bound).
+    Palette-index objects painted by the instance resolve through the bound
+    palette.
 * `|x|,|y|,|vx|,|vy| ≤ 2^24`; for copy ops `w,h ≠ 0` and `w*h ≤ max_copy_area`
   ⇒ else a typed error.
 * Cumulative translation-advance work (`moving_count` summed over every
@@ -113,8 +137,9 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
   and encode time.
 * The whole file is bounded by `Limits.max_stream_bytes`.
 
-State transitions (create/set/velocity/trajectory/advance/clear/patch) apply
-in listed order to procedural state; canvas ops (`0x24`, `0x25`, `0x2a`) do not
+State transitions
+(create/set/velocity/trajectory/palette/advance/clear/patch/bind) apply in
+listed order to procedural state; canvas ops (`0x24`, `0x25`, `0x2a`) do not
 touch state — a replay step applies every state transition of the interval
 first (in listed order), then materializes the canonical frame, then applies
 the interval's canvas ops in listed order (COPY/MOVE read their source from

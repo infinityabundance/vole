@@ -34,11 +34,9 @@ impl ContentId {
 }
 
 /// Canonical record bytes for an object (the encoder form described above),
-/// independent of its id.
+/// independent of its id. The tag constants mirror the format-v1 object-decl
+/// tags: `0x02` fill, `0x01` Gray8 raster, `0x05` palette-index raster.
 fn canonical_object_record(obj: &Object) -> Vec<u8> {
-    // The concrete canonical byte form matches format v1: fill boxes are a
-    // fill record; other objects are a raster record. Tag constants are kept
-    // local so this module is never coupled to `format`'s tags.
     let mut out = Vec::with_capacity(16);
     match obj.fill_value() {
         Some(v) => {
@@ -47,14 +45,22 @@ fn canonical_object_record(obj: &Object) -> Vec<u8> {
             out.extend_from_slice(&obj.height().to_le_bytes());
             out.push(v);
         }
-        None => {
-            out.push(0x01); // object-raster record tag
-            out.extend_from_slice(&obj.width().to_le_bytes());
-            out.extend_from_slice(&obj.height().to_le_bytes());
-            if let Some(raster) = obj.samples() {
-                out.extend_from_slice(raster);
+        None => match obj.indices() {
+            Some(indices) => {
+                out.push(0x05); // object-index-raster record tag
+                out.extend_from_slice(&obj.width().to_le_bytes());
+                out.extend_from_slice(&obj.height().to_le_bytes());
+                out.extend_from_slice(indices);
             }
-        }
+            None => {
+                out.push(0x01); // object-raster record tag
+                out.extend_from_slice(&obj.width().to_le_bytes());
+                out.extend_from_slice(&obj.height().to_le_bytes());
+                if let Some(raster) = obj.samples() {
+                    out.extend_from_slice(raster);
+                }
+            }
+        },
     }
     out
 }

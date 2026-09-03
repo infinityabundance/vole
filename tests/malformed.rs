@@ -512,3 +512,280 @@ fn trajectory_program_too_long_to_serialize_is_typed_error() -> Result<(), VoleE
     assert_eq!(res.unwrap_err(), VoleError::MaterializationBudgetExceeded);
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Phase J hostile courts: the palette records (TAG_OBJECT_INDEX 0x05,
+// TAG_PALETTE 0x06, TAG_CHECKPOINT_BINDINGS 0x08) and the palette transitions
+// (TR_SET_PALETTE 0x2d, TR_PATCH_PALETTE 0x2e, TR_BIND_PALETTE 0x2f) must
+// bound and fail typed on every hostile form. Streams are built canonically
+// and then patched in place so the structural error surfaces before the
+// integrity trailer check.
+// ---------------------------------------------------------------------------
+
+use vole_video::{demo::PaletteMode, state::PaletteId};
+
+/// A small single-interval accent-cycle palette court (canonical bytes).
+fn palette_court_bytes(intervals: u64) -> Result<Vec<u8>, VoleError> {
+    let (w, h) = (96u32, 64u32);
+    let court = demo::PaletteCourt {
+        width: w,
+        height: h,
+        background: 90,
+        box_x: 0,
+        box_y: 0,
+        box_w: w,
+        box_h: h,
+        object_id: 1,
+        instance_id: 1,
+        palette_id: 1,
+        indices: demo::window_ui_indices(w, h, 6, 24, 16, 12),
+        base_entries: demo::window_ui_entries(),
+        mode: PaletteMode::AccentCycle,
+        accent_index: 4,
+        cycle: vec![200, 60],
+        intervals,
+    };
+    court.vole()
+}
+
+/// Offset of the single occurrence of `needle` in the content prefix (the
+/// integrity trailer is excluded).
+fn single_tag_offset(bytes: &[u8], needle: u8) -> usize {
+    let content = &bytes[..bytes.len() - 32];
+    let hits: Vec<usize> = content
+        .windows(1)
+        .enumerate()
+        .filter(|(_, w)| w[0] == needle)
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(hits.len(), 1, "exactly one 0x{needle:02x} tag expected");
+    hits[0]
+}
+
+#[test]
+fn palette_stream_roundtrips_and_accounts() -> Result<(), VoleError> {
+    let bytes = palette_court_bytes(3)?;
+    let parsed = decoder::decode_bytes(&bytes)?;
+    let frames = vole_video::decoder::materialize_all(&parsed)?;
+    assert_eq!(frames.len(), 4);
+    // Accent bar toggles with the palette.
+    assert_eq!(frames[0].get(40, 60), 200);
+    assert_eq!(frames[1].get(40, 60), 60);
+    let cost = vole_video::inverse::account_stream(&bytes)?;
+    let sum = cost.header_bytes
+        + cost.object_bytes
+        + cost.checkpoint_bytes
+        + cost.transition_bytes
+        + cost.residual_bytes
+        + cost.model_bytes
+        + cost.state_bytes
+        + cost.dictionary_bytes
+        + cost.index_bytes
+        + cost.integrity_bytes;
+    assert_eq!(sum, cost.total_bytes);
+    assert!(cost.state_bytes > 0);
+    assert!(cost.index_object_bytes > 0);
+    Ok(())
+}
+
+#[test]
+fn index_object_geometry_bomb_rejected_at_parse() -> Result<(), VoleError> {
+    // The palette court writes its index object declaration (0x05) as the
+    // very first record (offset 24 = header size). Patch the width so the
+    // declared sample count exceeds `max_object_bytes`.
+    let bytes = palette_court_bytes(1)?;
+    assert_eq!(bytes[24], 0x05, "first decl must be the index object");
+    let mut b = bytes;
+    let at = 24 + 1 + 4; // tag + id: width field
+    b[at..at + 4].copy_from_slice(&0xFFFF_0000u32.to_le_bytes());
+    assert_eq!(
+        decoder::decode_bytes(&b).unwrap_err(),
+        VoleError::DimensionTooLarge
+    );
+    Ok(())
+}
+
+#[test]
+fn checkpoint_binding_to_undeclared_palette_rejected() -> Result<(), VoleError> {
+    // A checkpoint-with-bindings (0x08) referencing a palette that was never
+    // declared must fail typed at parse.
+    let bytes = palette_court_bytes(1)?;
+    let tag = single_tag_offset(&bytes, 0x08);
+    let mut b = bytes;
+    // Record layout: tag(1) bg(1) n(4) then per instance iid(4) oid(4) x(4)
+    // y(4) palette(4); the palette field of the single record sits at
+    // tag + 6 + 16.
+    let at = tag + 6 + 16;
+    b[at..at + 4].copy_from_slice(&99u32.to_le_bytes());
+    assert_eq!(
+        decoder::decode_bytes(&b).unwrap_err(),
+        VoleError::UnknownPalette
+    );
+    Ok(())
+}
+
+#[test]
+fn interval_bind_to_undeclared_palette_rejected_at_parse() -> Result<(), VoleError> {
+    // A canonical stream whose interval rebinds an instance to a palette that
+    // does not exist is a typed error at parse (the op is applied to the
+    // validation state).
+    let mut wr = StreamWriter::begin(16, 16);
+    wr = wr.declare_object(ObjectId(1), Object::fill(16, 16, 7)?)?;
+    wr = wr.palette(PaletteId(1), vec![9, 70])?;
+    let inst = Instance {
+        id: InstanceId(1),
+        object_id: ObjectId(1),
+        x: 0,
+        y: 0,
+    };
+    wr = wr.checkpoint_with_bindings(&[(inst.clone(), Some(PaletteId(1)))])?;
+    wr = wr.interval(
+        vole_video::time::Interval(1),
+        &[Transition::BindPalette {
+            instance: InstanceId(1),
+            palette: PaletteId(99),
+        }],
+    )?;
+    let bytes = wr.finish()?;
+    assert_eq!(
+        decoder::decode_bytes(&bytes).unwrap_err(),
+        VoleError::UnknownPalette
+    );
+    Ok(())
+}
+
+#[test]
+fn patch_palette_count_bomb_is_typed_error() -> Result<(), VoleError> {
+    // A single-interval accent stream carries exactly one 0x2e op; patch its
+    // change count to 300 (a strictly ascending u8 list can never exceed 256).
+    let bytes = palette_court_bytes(1)?;
+    let tag = single_tag_offset(&bytes, 0x2e);
+    let mut b = bytes;
+    let at = tag + 1 + 4; // tag + palette id: count field
+    b[at..at + 4].copy_from_slice(&300u32.to_le_bytes());
+    assert_eq!(
+        decoder::decode_bytes(&b).unwrap_err(),
+        VoleError::NonCanonicalEncoding
+    );
+    Ok(())
+}
+
+#[test]
+fn patch_palette_duplicate_index_is_typed_error() -> Result<(), VoleError> {
+    // Two-change patch stream: op layout is tag(1) id(4) count(4) then
+    // (idx u8, val u8)* — entries at tag+9 (idx), tag+10 (val), tag+11 (idx),
+    // tag+12 (val). Make the second index duplicate the first.
+    let mut wr = StreamWriter::begin(16, 16);
+    wr = wr.declare_object(ObjectId(1), Object::fill(16, 16, 7)?)?;
+    wr = wr.palette(PaletteId(1), vec![9, 70, 200])?;
+    let inst = Instance {
+        id: InstanceId(1),
+        object_id: ObjectId(1),
+        x: 0,
+        y: 0,
+    };
+    wr = wr.checkpoint_with_bindings(&[(inst.clone(), Some(PaletteId(1)))])?;
+    wr = wr.interval(
+        vole_video::time::Interval(1),
+        &[Transition::PatchPalette {
+            id: PaletteId(1),
+            changes: vec![(0, 1), (1, 2)],
+        }],
+    )?;
+    let bytes = wr.finish()?;
+    let tag = single_tag_offset(&bytes, 0x2e);
+    let mut b = bytes;
+    b[tag + 11] = 0; // second index collides with the first
+    assert_eq!(
+        decoder::decode_bytes(&b).unwrap_err(),
+        VoleError::NonCanonicalEncoding
+    );
+    Ok(())
+}
+
+#[test]
+fn patch_palette_out_of_range_is_typed_error() -> Result<(), VoleError> {
+    // An index beyond the palette's current length is rejected at parse (the
+    // op is applied to the validation state) with OutOfBounds.
+    let mut wr = StreamWriter::begin(16, 16);
+    wr = wr.declare_object(ObjectId(1), Object::fill(16, 16, 7)?)?;
+    wr = wr.palette(PaletteId(1), vec![9, 70])?;
+    let inst = Instance {
+        id: InstanceId(1),
+        object_id: ObjectId(1),
+        x: 0,
+        y: 0,
+    };
+    wr = wr.checkpoint_with_bindings(&[(inst.clone(), Some(PaletteId(1)))])?;
+    wr = wr.interval(
+        vole_video::time::Interval(1),
+        &[Transition::PatchPalette {
+            id: PaletteId(1),
+            changes: vec![(7, 9)], // palette length is 2
+        }],
+    )?;
+    let bytes = wr.finish()?;
+    assert_eq!(
+        decoder::decode_bytes(&bytes).unwrap_err(),
+        VoleError::OutOfBounds
+    );
+    Ok(())
+}
+
+#[test]
+fn set_palette_empty_entries_is_typed_error() -> Result<(), VoleError> {
+    // Patch the interval SetPalette record's length to 0: non-canonical.
+    let court = demo::PaletteCourt {
+        width: 16,
+        height: 16,
+        background: 90,
+        box_x: 0,
+        box_y: 0,
+        box_w: 16,
+        box_h: 16,
+        object_id: 1,
+        instance_id: 1,
+        palette_id: 1,
+        indices: vec![0u8; 16 * 16],
+        base_entries: vec![200, 60, 30, 128],
+        mode: PaletteMode::RotateAll,
+        accent_index: 4,
+        cycle: vec![200],
+        intervals: 1,
+    };
+    let bytes = court.vole()?;
+    let tag = single_tag_offset(&bytes, 0x2d);
+    let mut b = bytes;
+    let at = tag + 1 + 4; // tag + palette id: entry count
+    b[at..at + 4].copy_from_slice(&0u32.to_le_bytes());
+    assert_eq!(
+        decoder::decode_bytes(&b).unwrap_err(),
+        VoleError::NonCanonicalEncoding
+    );
+    Ok(())
+}
+
+#[test]
+fn set_palette_oversize_entries_is_typed_error() -> Result<(), VoleError> {
+    // Interval SetPalette declaring more entries than max_palette_entries.
+    let mut wr = StreamWriter::begin(16, 16);
+    wr = wr.declare_object(ObjectId(1), Object::fill(16, 16, 7)?)?;
+    wr = wr.palette(PaletteId(1), vec![9, 70])?;
+    wr = wr.checkpoint_with_bindings(&[])?;
+    // The writer itself rejects the oversized payload, so this asserts the
+    // writer gate; the parser gate is exercised by patching a canonical
+    // stream's length field instead.
+    let res = wr.interval(
+        vole_video::time::Interval(1),
+        &[Transition::SetPalette {
+            id: PaletteId(1),
+            entries: vec![0u8; 257],
+        }],
+    );
+    let err = match res {
+        Ok(_) => panic!("oversized palette payload must be rejected"),
+        Err(e) => e,
+    };
+    assert_eq!(err, VoleError::DimensionTooLarge);
+    Ok(())
+}

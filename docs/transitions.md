@@ -38,6 +38,7 @@ tags (`docs/format-v1.md`):
 | G | `ClearInstances` (0x28) / `ClearOverlay` (0x29) | full-content replacement: drop every live instance / every overlay point |
 | G | `Residual` (0x2a) | per-frame residual block (Phase-F coded payload) applied to the canvas in op order — the `⊕_ρ` residual algebra, one-shot, stateless |
 | I | `SetTrajectory` (0x2b) + `AdvanceTrajectories` (0x2c) | per-instance bounded parametric trajectory program (Linear / Accel segments) stepped once per advance; empty program deactivates; exclusive with translation state |
+| J | `SetPalette` (0x2d) / `PatchPalette` (0x2e) / `BindPalette` (0x2f) + palette-table record (0x06) + palette-binding checkpoint (0x08) + palette-index object (0x05) | mutable palette state; palette-index planes render through per-instance bound palettes |
 
 Because Phase A declares all objects before the single checkpoint, interval
 groups in v1 contain only `CreateInstance`/`SetPosition`. Later phases broaden
@@ -76,6 +77,31 @@ per-frame `AdvanceTrajectories` **only if** materialization stays exact
 (proven by normative decode of the rebuilt stream) and the complete cost
 falls (strictly fewer bytes). Runs shorter than three frames cannot pay for
 the descriptor and are left alone.
+
+## Phase-J palette semantics (normative, deterministic)
+
+A **palette** is a bounded mutable table of Gray8 entries; a
+**palette-index object** is immutable content whose bytes are one-byte
+indices. Materialization renders an index object by resolving every index
+through the entries of the palette **bound to the painting instance**
+(`M(state)`: `indices ∘ entries(bound_palette)`). A missing binding/palette
+is `UnknownPalette`; an index at or beyond the palette length is
+`OutOfBounds` — typed, deterministic, never a wrap.
+
+* `0x06`/`0x2d` lay down / replace a whole palette (`1..=256` entries, id ≠ 0);
+* `0x2e` patches entries — `(index, value)` pairs, strictly ascending, in
+  range;
+* `0x2f` binds/unbinds an instance to a palette; bindings die with their
+  instances (`0x28`), palettes persist;
+* the checkpoint variant `0x08` carries interval-0 bindings so palette
+  content renders from frame 0 (plain `0x03` checkpoints stay byte-identical
+  for streams without bindings).
+
+Because the index plane never changes while palette entries are mutable
+state, color animation (accent blinking, full color drift) is a *tiny state
+mutation* — `24–28 B/interval` on the Phase-J courts — never a raster or
+index-plane rewrite. Palette content at rest costs the ordinary 13 B/frame
+unchanged lane.
 
 ## §/Semantics that MUST be deterministic
 

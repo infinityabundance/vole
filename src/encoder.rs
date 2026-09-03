@@ -172,3 +172,181 @@ pub fn make_instance(id: u32, object_id: ObjectId, x: i64, y: i64) -> Instance {
         y,
     }
 }
+
+/// Encode a procedural stream that begins with palette state (Phase J):
+/// pre-checkpoint palette-table declarations and per-instance palette
+/// bindings at the checkpoint, so palette-index content renders from frame 0.
+/// Interval transitions may mutate palettes (`SetPalette`/`PatchPalette`) and
+/// re-bind instances (`BindPalette`).
+///
+/// # Arguments
+/// * `palettes` — `(palette id, initial entries)` declared before the
+///   checkpoint (ids from 1; entries non-empty and ≤ `max_palette_entries`).
+/// * `checkpoint` — the live instances anchoring interval 0 in paint order,
+///   each with its optional palette binding (the bound palette must be in
+///   `palettes`).
+///
+/// Everything else mirrors [`encode_stream`].
+pub fn encode_palette_stream(
+    width: u32,
+    height: u32,
+    background: u8,
+    objects: &[(u32, Object)],
+    palettes: &[(u32, Vec<u8>)],
+    checkpoint: &[(Instance, Option<crate::state::PaletteId>)],
+    timeline: &[(u64, Vec<Transition>)],
+) -> Result<Vec<u8>, VoleError> {
+    validate_palette_stream(
+        width, height, background, objects, palettes, checkpoint, timeline,
+    )?;
+    let mut wr = crate::format::StreamWriter::begin(width, height).background(background);
+    for (id, obj) in objects {
+        wr = wr.declare_object(ObjectId(*id), obj.clone())?;
+    }
+    for (id, entries) in palettes {
+        wr = wr.palette(crate::state::PaletteId(*id), entries.clone())?;
+    }
+    wr = wr.checkpoint_with_bindings(checkpoint)?;
+    for (t, trs) in timeline {
+        wr = wr.interval(Interval(*t), trs)?;
+    }
+    wr.finish()
+}
+
+/// Validate palette-aware descriptors with the same normative semantics the
+/// parser uses, before serialization.
+#[allow(clippy::too_many_arguments)] // mirrors the encode_* surface: 8 ordered descriptor lists
+fn validate_palette_stream(
+    width: u32,
+    height: u32,
+    background: u8,
+    objects: &[(u32, Object)],
+    palettes: &[(u32, Vec<u8>)],
+    checkpoint: &[(Instance, Option<crate::state::PaletteId>)],
+    timeline: &[(u64, Vec<Transition>)],
+) -> Result<(), VoleError> {
+    let _ = (width, height, background); // geometry guarded by writer + parser
+    let mut seen = std::collections::HashSet::new();
+    for (id, _) in objects {
+        if !seen.insert(*id) {
+            return Err(VoleError::DuplicateId);
+        }
+    }
+    let mut st = State::new(Interval::ZERO);
+    for (id, obj) in objects {
+        st.declare_object(ObjectId(*id), obj.clone())?;
+    }
+    let limits = crate::limits::Limits::default();
+    let mut seen_palettes = std::collections::HashSet::new();
+    for (id, entries) in palettes {
+        if !seen_palettes.insert(*id) {
+            return Err(VoleError::DuplicateId);
+        }
+        if entries.is_empty() || *id == 0 {
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+        if entries.len() as u64 > u64::from(limits.max_palette_entries) {
+            return Err(VoleError::DimensionTooLarge);
+        }
+        st.set_palette(crate::state::PaletteId(*id), entries.clone())?;
+        if st.palette_count() as u64 > u64::from(limits.max_palettes) {
+            return Err(VoleError::DimensionTooLarge);
+        }
+    }
+    let mut inst_ids = std::collections::HashSet::new();
+    for (inst, binding) in checkpoint {
+        if !inst_ids.insert(inst.id.0) {
+            return Err(VoleError::DuplicateId);
+        }
+        st.create_instance(inst.id, inst.object_id, inst.x, inst.y)?;
+        if let Some(p) = binding {
+            st.bind_palette(inst.id, *p)?;
+        }
+    }
+    let mut prev_t = 0u64;
+    let mut advance_work: u64 = 0;
+    let mut trajectory_work: u64 = 0;
+    let mut interval_no = 0u64;
+    for (t, trs) in timeline {
+        if *t == 0 || *t <= prev_t {
+            return Err(VoleError::NonConsecutiveInterval);
+        }
+        prev_t = *t;
+        interval_no += 1;
+        limits.check_interval_distance(interval_no)?;
+        if trs.len() as u64 > u64::from(limits.max_transitions_per_interval) {
+            return Err(VoleError::MaterializationBudgetExceeded);
+        }
+        for tr in trs {
+            if let Some((src_x, src_y, width, height, dst_x, dst_y)) = match tr {
+                Transition::CopyRect {
+                    src_x,
+                    src_y,
+                    width,
+                    height,
+                    dst_x,
+                    dst_y,
+                }
+                | Transition::MoveRect {
+                    src_x,
+                    src_y,
+                    width,
+                    height,
+                    dst_x,
+                    dst_y,
+                } => Some((*src_x, *src_y, *width, *height, *dst_x, *dst_y)),
+                _ => None,
+            } {
+                const COORD: i64 = 1 << 24;
+                if src_x.abs() > COORD
+                    || src_y.abs() > COORD
+                    || dst_x.abs() > COORD
+                    || dst_y.abs() > COORD
+                    || width == 0
+                    || height == 0
+                {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+                if u64::from(width) * u64::from(height) > limits.max_copy_area {
+                    return Err(VoleError::MaterializationBudgetExceeded);
+                }
+            }
+            if let Transition::Residual { block } = tr {
+                crate::rans::check_block(block, limits.max_residual_bytes)?;
+            }
+            if let Transition::SetTrajectory { segments, .. } = tr {
+                crate::trajectory::check_program(segments, &limits)?;
+            }
+            if let Transition::SetPalette { entries, .. } = tr {
+                if entries.is_empty() {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+                if entries.len() as u64 > u64::from(limits.max_palette_entries) {
+                    return Err(VoleError::DimensionTooLarge);
+                }
+            }
+            if let Transition::AdvanceTranslations = tr {
+                advance_work += st.moving_count() as u64;
+                if advance_work > limits.max_transition_work {
+                    return Err(VoleError::MaterializationBudgetExceeded);
+                }
+            }
+            if let Transition::AdvanceTrajectories = tr {
+                trajectory_work += st.trajectory_count() as u64;
+                if trajectory_work > limits.max_trajectory_work {
+                    return Err(VoleError::MaterializationBudgetExceeded);
+                }
+            }
+            tr.apply(&mut st)?;
+            if let Transition::PatchSparse { .. } = tr {
+                limits.check_overlay_points(st.overlay_len() as u64)?;
+            }
+            if let Transition::SetPalette { .. } = tr {
+                if st.palette_count() as u64 > u64::from(limits.max_palettes) {
+                    return Err(VoleError::DimensionTooLarge);
+                }
+            }
+        }
+    }
+    Ok(())
+}

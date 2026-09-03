@@ -12,7 +12,14 @@ The normative painter (Phase A, `FullFrame` view) is specified in
 1. allocate a `width × height` Gray8 canvas and fill it with `state.background()`;
 2. for each instance in paint order, paint its immutable object at `(x, y)`,
    overwriting and clipping at the canvas border;
-3. return the canvas.
+3. (Phase J) a **palette-index object** paints by resolving every stored
+   index through the entries of the palette bound to the instance
+   (`state.bindings` → `state.palettes`). A missing binding/palette is the
+   typed error `UnknownPalette`; an index at or beyond the palette length is
+   the typed error `OutOfBounds`. Index planes are immutable content; palettes
+   are mutable-by-transition state, so the same plane re-renders with new
+   values whenever its palette changes;
+4. return the canvas.
 
 Blit/copy-left semantics and clipping are defined by `Canvas::blit`,
 `fill_rect_clipped`, and the fill expansion in `src/object.rs`. These are the

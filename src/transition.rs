@@ -9,7 +9,7 @@
 use crate::{
     error::VoleError,
     object::{Object, ObjectId},
-    state::{InstanceId, State},
+    state::{InstanceId, PaletteId, State},
     trajectory::TrajectorySegment,
 };
 
@@ -52,6 +52,25 @@ pub enum Transition {
     /// trajectory-carrying instance moves by its current velocity and its
     /// segment/velocity state updates per `crate::trajectory` semantics.
     AdvanceTrajectories,
+    /// Replace (or declare) the whole palette `id` with `entries` (Phase J).
+    /// Mutation is first-class state: a palette-index plane re-renders with
+    /// the new values from the next materialization.
+    SetPalette { id: PaletteId, entries: Vec<u8> },
+    /// Patch palette entries of `id` (Phase J): `(index, value)` pairs in
+    /// canonical strictly ascending index order; every index must be inside
+    /// the palette's current length.
+    PatchPalette {
+        id: PaletteId,
+        changes: Vec<(u8, u8)>,
+    },
+    /// Bind an instance to a palette (Phase J): palette-index objects painted
+    /// by the instance resolve through that palette's entries.
+    /// `PaletteId::NONE` unbinds. Binding to an undeclared palette is a typed
+    /// error.
+    BindPalette {
+        instance: InstanceId,
+        palette: PaletteId,
+    },
     /// Sparse overlay patch: authoritative pixel set above all instances.
     /// Points must be canonical sorted; each applied pixel persists until
     /// overwritten by a later sparse patch for that coordinate (Phase C).
@@ -124,6 +143,11 @@ impl Transition {
                 state.set_trajectory(*id, segments.clone())
             }
             Transition::AdvanceTrajectories => state.advance_trajectories(),
+            Transition::SetPalette { id, entries } => state.set_palette(*id, entries.clone()),
+            Transition::PatchPalette { id, changes } => state.patch_palette(*id, changes),
+            Transition::BindPalette { instance, palette } => {
+                state.bind_palette(*instance, *palette)
+            }
             Transition::PatchSparse { points } => state.overlay_batch(points),
             // Frame-referencing ops act on the decode canvas, not on the
             // painter State, so they are no-ops here. Their bounds geometry is
@@ -154,6 +178,9 @@ impl Transition {
             Transition::AdvanceTranslations => "advance_translations",
             Transition::SetTrajectory { .. } => "set_trajectory",
             Transition::AdvanceTrajectories => "advance_trajectories",
+            Transition::SetPalette { .. } => "set_palette",
+            Transition::PatchPalette { .. } => "patch_palette",
+            Transition::BindPalette { .. } => "bind_palette",
             Transition::PatchSparse { .. } => "patch_sparse",
             Transition::CopyRect { .. } => "copy_rect",
             Transition::MoveRect { .. } => "move_rect",

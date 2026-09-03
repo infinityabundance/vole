@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase I sealed (see git log)
-**Current phase:** I (bounded parametric trajectories) — SEALED. Next: Phase J (palette state).
+**Current head:** Phase J sealed (see git log)
+**Current phase:** J (palette state) — SEALED. Next: Phase K (variable regions).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -63,7 +63,7 @@ heuristic's constant probe set misses scroll-by-7 entirely (`J = 11.5×`).
 Receipt + evidence: `docs/phase-h.md`,
 `evidence/campaigns/phase-h-dsfb-1788464563/`.
 
-Phase I (this head): bounded **parametric trajectories** as first-class
+Phase I: bounded **parametric trajectories** as first-class
 procedural state (`src/trajectory.rs`, tags 0x2b/0x2c): finite programs of
 Linear (constant velocity / exact hold) and Accel (constant acceleration,
 exact discrete semantics `pos += v; v += a`, closed form
@@ -81,40 +81,59 @@ fixpoints; active zero-velocity holds measured at 14.5 B/frame — statics stay
 in the 13 B/frame unchanged lane. Receipt + evidence: `docs/phase-i.md`,
 `evidence/campaigns/phase-i-trajectory-1788466084/`.
 
+Phase J (this head): **palette state** — palette-index objects (0x05,
+immutable one-byte index planes with exact content identity), a mutable
+bounded palette table in `G_t` (0x06 pre-checkpoint records +
+`SetPalette` 0x2d / `PatchPalette` 0x2e), and per-instance palette bindings
+(0x08 checkpoint variant + `BindPalette` 0x2f). Materialization resolves
+`indices ∘ entries(bound palette)` with typed errors (`UnknownPalette`,
+`OutOfBounds`); `limits.max_palette_entries` (256) / `max_palettes` (4096).
+Measured on 1920×1080 UI content: accent cycling **24 B/interval** vs the
+204 773 B/interval palette-less sparse floor (8 532×) and 2 073 600 B RAW;
+whole-palette rotation **28 B/interval** while every pixel changes; the §55
+flattening-tax court measures authored-palette intervals at 288 B vs the
+raster-origin inverse encode's 50 016 B (174×) on identical visual frames;
+static palette content is free at rest (13 B/frame unchanged lane). Receipt +
+evidence: `docs/phase-j.md`, `evidence/campaigns/phase-j-palette-…/`.
+
 ## In progress
 
-Phase J — palette state (palette object, palette-index object, palette
-mutation) on screen/UI/animation content.
+Phase K — variable regions (64×64 → 32×32 → 16×16 → 8×8, rectangular
+regions) with DSFB-governed search and no uncontrolled partition explosion.
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase J palettes → Phase K variable regions → Phase L affine/global → Phase M
-transform residual → Phase N procedural generators → Phase O representation
-re-optimization (`vole optimize`) → Phase P optional EntropyFS persistence →
-Phase Q native procedural ingest API → Phase R procedural transport → Phase S
-partial materialization → Phase T archive profile → Phase U perceptual profile
-(last).
+Phase K variable regions → Phase L affine/global → Phase M transform residual
+→ Phase N procedural generators → Phase O representation re-optimization
+(`vole optimize`) → Phase P optional EntropyFS persistence → Phase Q native
+procedural ingest API → Phase R procedural transport → Phase S partial
+materialization → Phase T archive profile → Phase U perceptual profile (last).
 
 ## Failures / uncertainty
 
 No mechanism rejected yet. Measured, recorded gaps (not hidden): whole-frame
 granularity pays full-raster declarations at raster-origin frame 0 / rebase
-frames (region extraction is Phase K, native ingest Phase Q); stable residuals
-pay one-shot per frame until a re-optimization pass promotes them (Phase O);
-"static after canvas-op" frames repeat at 38 B until a RAW-capture rebase
-(Phase O); DSFB can miss a cheaper family with no slew/regime signal for at
-most one small interval before the rotating sweep or a following signal
-recovers it (Phase H receipt); trajectory descriptors only pay from runs of
-≥ 3 frames and short accelerating runs amortize the descriptor poorly (Phase I
+frames, and whole-canvas index planes pay their raster-area declaration once
+(region extraction is Phase K, native ingest Phase Q); the raster-origin
+inverse encoder has no palette/trajectory *discovery* family yet — the
+measured flattening tax is 174× (palette) and trajectory collapse is a
+post-pass (Phase O `vole optimize`); stable residuals pay one-shot per frame
+until a re-optimization pass promotes them (Phase O); "static after
+canvas-op" frames repeat at 38 B until a RAW-capture rebase (Phase O); DSFB
+can miss a cheaper family with no slew/regime signal for at most one small
+interval before the rotating sweep or a following signal recovers it (Phase H
+receipt); trajectory descriptors only pay from runs of ≥ 3 frames (Phase I
 receipt); an active zero-velocity trajectory costs more than the unchanged
-lane, so statics never use trajectories (measured, Phase I).
+lane, so statics never use trajectories (measured, Phase I); palettes must be
+set before they are bound, and index validity is enforced at materialization
+time (Phase J).
 
 ## Frozen (format decisions)
 
-v1 `.vole` grammar (docs/format-v1.md), materializer painter semantics, time
-model (explicit advances only — never implicit stepping), limits profile 1,
-integrity trailer, rANS normative constants (docs/phase-f.md). v1 continues to
-*extend* per sealed phase (tags 0x21–0x2c) with old streams re-parsed
-unchanged.
+v1 `.vole` grammar (docs/format-v1.md), materializer painter semantics
+(including palette-index resolution), time model (explicit advances only —
+never implicit stepping), limits profile 1, integrity trailer, rANS
+normative constants (docs/phase-f.md). v1 continues to *extend* per sealed
+phase (tags 0x21–0x2f) with old streams re-parsed unchanged.

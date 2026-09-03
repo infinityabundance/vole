@@ -64,6 +64,13 @@ pub struct Limits {
     /// `max_transition_work`). A hostile stream cannot force unbounded
     /// trajectory stepping through many active programs.
     pub max_trajectory_work: u64,
+    /// Maximum entries in one palette (Phase J). Gray8 index samples are one
+    /// byte, so the palette can never map more than 256 distinct indices.
+    pub max_palette_entries: u32,
+    /// Maximum distinct palettes one state may carry (Phase J). A hostile
+    /// stream cannot grow the palette table without bound through many
+    /// `SetPalette` payloads.
+    pub max_palettes: u32,
 }
 
 impl Default for Limits {
@@ -89,6 +96,8 @@ impl Default for Limits {
             max_residual_bytes: 9 * (1920 * 1080) + RESIDUAL_WIRE_SLACK,
             max_trajectory_segments: 256,
             max_trajectory_work: 1 << 22,
+            max_palette_entries: 256,
+            max_palettes: 4096,
         }
     }
 }

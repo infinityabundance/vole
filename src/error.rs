@@ -41,6 +41,10 @@ pub enum VoleError {
     /// An instance with the given id was not found but was referenced.
     UnknownInstance,
 
+    /// A palette with the given id (or an instance's palette binding) was not
+    /// found at materialization or bind time.
+    UnknownPalette,
+
     /// A packet referenced an object id that conflicts with a distinct
     /// existing declaration (duplicate / contradictory declaration).
     ConflictingObjectId,
@@ -111,6 +115,12 @@ impl fmt::Display for VoleError {
             Self::DimensionTooLarge => write!(f, "declared dimension exceeds the active limits"),
             Self::UnknownObject => write!(f, "reference to an object id that is not declared"),
             Self::UnknownInstance => write!(f, "reference to an instance id that is not declared"),
+            Self::UnknownPalette => {
+                write!(
+                    f,
+                    "reference to a palette id or binding that is not declared"
+                )
+            }
             Self::ConflictingObjectId => {
                 write!(f, "object id redeclared with conflicting identical bytes")
             }
