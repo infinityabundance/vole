@@ -68,7 +68,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
-## CLI (Phase A–G surface)
+## CLI (Phase A–H surface)
 
 ```
 vole demo moving-rect [out.vole]
