@@ -28,7 +28,11 @@ The normative painter (Phase A, `FullFrame` view) is specified in
    placement), a sample outside leaves the underlying canvas, and cumulative
    per-materialization affine sample work is capped by
    `Limits.max_affine_work`;
-5. return the canvas.
+5. (Phase N) a **procedural generator object** paints by computing each
+   sample of its box from the bounded integer program at materialization
+   (clipped exactly like a fill); the program is validated canonically and
+   its work is the painted area;
+6. return the canvas.
 
 Blit/copy-left semantics and clipping are defined by `Canvas::blit`,
 `fill_rect_clipped`, and the fill expansion in `src/object.rs`. These are the

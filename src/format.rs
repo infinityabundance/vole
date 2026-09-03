@@ -64,6 +64,7 @@ pub(crate) const TAG_CHECKPOINT: u8 = 0x03;
 pub(crate) const TAG_INTERVAL: u8 = 0x04;
 pub(crate) const TAG_OBJECT_INDEX: u8 = 0x05;
 pub(crate) const TAG_PALETTE: u8 = 0x06;
+pub(crate) const TAG_OBJECT_GENERATOR: u8 = 0x07;
 /// Checkpoint variant carrying per-instance palette bindings (Phase J).
 /// Layout mirrors `TAG_CHECKPOINT` with one extra `palette:u32` per instance
 /// record (0 = unbound). Only streams with at least one binding use it.
@@ -309,6 +310,23 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                     return Err(VoleError::DimensionTooLarge);
                 }
                 let obj = Object::fill(w, h, value)?;
+                if !object_ids.insert(id.0) {
+                    return Err(VoleError::DuplicateId);
+                }
+                cur.declare_object(id, obj)?;
+            }
+            TAG_OBJECT_GENERATOR => {
+                if saw_checkpoint {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+                let id = ObjectId(r.pull::<u32>()?);
+                let w = r.pull::<u32>()?;
+                let h = r.pull::<u32>()?;
+                if u64::from(w) * u64::from(h) > limits.max_object_bytes {
+                    return Err(VoleError::DimensionTooLarge);
+                }
+                let gen = crate::generator::Generator::parse_program(&mut r)?;
+                let obj = Object::procedural(w, h, gen)?;
                 if !object_ids.insert(id.0) {
                     return Err(VoleError::DuplicateId);
                 }
@@ -820,6 +838,14 @@ impl StreamWriter {
 }
 
 fn write_object_decl(sink: &mut ByteSink, id: ObjectId, obj: &Object) -> Result<(), VoleError> {
+    if let Some(gen) = obj.generator() {
+        sink.byte(TAG_OBJECT_GENERATOR)?;
+        sink.push(id.0)?;
+        sink.push(obj.width())?;
+        sink.push(obj.height())?;
+        sink.extend(&gen.program_bytes())?;
+        return Ok(());
+    }
     match obj.fill_value() {
         Some(v) => {
             sink.byte(TAG_OBJECT_FILL)?;

@@ -35,9 +35,26 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
 0x02 obj:u32 w:u32 h:u32 v:u8                // uniform fill object
 0x05 obj:u32 w:u32 h:u32 (w*h) index-byte    // palette-index raster (Phase J)
 0x06 pal:u32 len:u32 (len) entry:u8          // palette-table declaration (Phase J)
+0x07 obj:u32 w:u32 h:u32 program             // procedural generator (Phase N)
+```
+
+A generator `program` is `kind:u8` + parameters (all little-endian):
+
+```
+0x00 gradient   base:u8 sx:i32 sy:i32         v = (base + sx*x + sy*y) mod 256
+0x01 checker    a:u8 b:u8 cell:u32            v = a when ((x/cell)+(y/cell)) even, else b
+0x02 periodic   base:u8 sx:i32 sy:i32 p:u32   v = (base + sx*(x mod p) + sy*(y mod p)) mod 256
+0x03 noise      seed:u64                      seeded integer hash of (x, y)
 ```
 
 * `w*h` must not exceed the active `max_object_bytes` (also for index planes).
+  Generator samples are never stored: the materializer computes every sample
+  of the painted box from the program (work == painted area, the same class
+  as a raster blit), so the declaration stores the program, never the raster.
+* Generator domains: `|sx|, |sy| ≤ 2^24`, `1 ≤ cell ≤ 4096`, `1 ≤ p ≤ 4096`;
+  an unknown `kind` or an out-of-domain parameter is `NonCanonicalEncoding`.
+  All generator arithmetic is integer (mod-256 wrap is the canonical Gray8
+  semantics).
 * `0x05` samples are **palette indices** (not Gray8 samples); they render only
   through a palette bound to the painting instance (see the checkpoint and
   `0x2f`).

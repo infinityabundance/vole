@@ -33,6 +33,7 @@ pub mod dsfb;
 pub mod encoder;
 pub mod error;
 pub mod format;
+pub mod generator;
 pub mod identity;
 pub mod integr;
 pub mod inverse;

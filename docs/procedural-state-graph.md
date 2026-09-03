@@ -39,7 +39,12 @@ Later phases added to the domain model (`T_t`, transforms/trajectories; `M_t`, m
   through `((a·x+b·y+c) >> 8, (d·x+e·y+f) >> 8)`, integer everywhere; an
   instance with an affine paints through it instead of its plain `(x, y)`
   placement, the identity affine deactivates, and affine/velocity/trajectory
-  state on one instance are mutually exclusive).
+  state on one instance are mutually exclusive);
+* **procedural generator objects** (Phase N: an immutable object may carry a
+  bounded integer *content program* — gradient / checker / periodic sawtooth /
+  seeded noise — whose samples are computed at materialization rather than
+  stored; the program is the object's content, so its BLAKE3 identity is the
+  canonical wire record `0x07 w h program`).
 
 ## Immutability vs mutation
 

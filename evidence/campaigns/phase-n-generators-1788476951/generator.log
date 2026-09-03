@@ -1,0 +1,38 @@
+warning: variable does not need to be mutable
+   --> examples/generator_proof.rs:180:13
+    |
+180 |         let mut f1 = frames[0].clone();
+    |             ----^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vole-video` (example "generator_proof") generated 1 warning (run `cargo fix --example "generator_proof" -p vole-video` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/examples/generator_proof`
+drift-flag-1920x1080: frames=12 vole=706B raw_all=24883200B ratio_raw=35245x winners=[generatorx12] exact=true encode_ms=6525
+authored-gradient-1920x1080: vole=101B raw_frame=2073600B raw_vs_stored=20531x exact=true
+authored-checker-1920x1080: vole=98B raw_frame=2073600B raw_vs_stored=21159x exact=true
+authored-periodic-1920x1080: vole=105B raw_frame=2073600B raw_vs_stored=19749x exact=true
+authored-noise-1920x1080: vole=100B raw_frame=2073600B raw_vs_stored=20736x exact=true
+noise-192x128 (negative): vole=24667B winners=[raw] exact=true note="an unknowable noise field is never discovered; a seed that relocates bits never wins the court"
+closure-1920x160: frame1_winner=transform_residual payload=5860B band_px=10560 raw_frame=307200B winners=[generatorx1 transform_residualx1] exact=true
+   Compiling vole-video v0.9.0 (/mnt/1tb_kingston/vole)
+    Finished `release` profile [optimized] target(s) in 2.50s
+     Running tests/phase_n.rs (target/release/deps/phase_n-d280bb9219dcd96b)
+
+running 10 tests
+test generator_identity_matches_the_wire_record ... ok
+test every_generator_kind_materializes_exact_vs_independent_references ... ok
+test generator_stream_accounting_buckets_sum ... ok
+test hostile_generator_streams_are_typed ... ok
+test generator_tiles_compose_with_motion_and_affine_placement ... ok
+test noise_and_wrong_seed_negative_controls_stay_raw ... ok
+test generator_approximation_carries_its_exact_residual ... ok
+test generator_explains_the_bulk_and_never_hides_the_rest ... ok
+test strategies_agree_on_gradient_discovery ... ok
+test encoder_discovers_generators_on_pure_gradient_sequences ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+

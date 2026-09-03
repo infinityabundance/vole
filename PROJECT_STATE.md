@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase M sealed (see git log)
-**Current phase:** M (transform residual floor) — SEALED. Next: Phase N (procedural generators).
+**Current head:** Phase N sealed (see git log)
+**Current phase:** N (procedural generators) — SEALED. Next: Phase O (representation re-optimization).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -156,19 +156,40 @@ models are a `model_bytes` sub-bucket excluded from `residual_bytes`, so the
 ten buckets sum exactly. Receipt + evidence: `docs/phase-m.md`,
 `evidence/campaigns/phase-m-transform-…/`.
 
+Phase N (this head): **bounded procedural generators** — an immutable object
+may carry a bounded integer *content program* whose samples are computed at
+materialization instead of stored (`src/generator.rs`, object tag 0x07):
+gradient `(base + sx·x + sy·y) mod 256`, checker (cell parity), periodic
+sawtooth with explicit period, and seeded noise (splitmix64 position hash).
+Integer only; work == painted box; content identity == BLAKE3 over
+`0x07 w h program` so generator content reuses exactly. The inverse encoder
+fits a deterministic bounded set of content-derived programs (gradient /
+checker cell lattice / periodic period lattice; noise is never fitted — seed
+discovery is unbounded search), spot-checks on O(w+h) and validates by
+rendering the normative field; an inexact fit is admissible only as
+`generator_residual` with its exact correction counted (≥ 15/16 gate).
+Measured: 1920×1080 drifting-gradient flagship — 12 frames in **706 B**
+(35 245× vs raw), winners `generator×12`, all frames byte-exact; authored
+full-HD frames 98–105 B (≈ 20 000× vs the 2 073 600 B raster); noise and
+wrong-seed controls stay RAW (unknowable seed is never discovered — the
+§21/§63 negative control); generator tiles compose with motion/affine;
+hostile wire + identity + accounting courts typed. Recorded re-measurement:
+pure wrap-ramp content (Phase M's transform-floor exhibit) is now explained
+procedurally. Receipt + evidence: `docs/phase-n.md`,
+`evidence/campaigns/phase-n-generators-…/`.
+
 ## In progress
 
-(none — Phase M sealed; Phase N is next)
+(none — Phase N sealed; Phase O is next)
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase N procedural generators → Phase O representation re-optimization
-(`vole optimize`) → Phase P optional EntropyFS persistence → Phase Q native
-procedural ingest API → Phase R procedural transport → Phase S partial
-materialization → Phase T archive profile → Phase U perceptual profile
-(last).
+Phase O representation re-optimization (`vole optimize`) → Phase P optional
+EntropyFS persistence → Phase Q native procedural ingest API → Phase R
+procedural transport → Phase S partial materialization → Phase T archive
+profile → Phase U perceptual profile (last).
 
 ## Failures / uncertainty
 
@@ -190,7 +211,7 @@ I); palettes must be set before they are bound, and index validity is
 enforced at materialization (Phase J); an affine placement scans the whole
 canvas, so many concurrent affine instances are capped by
 `max_affine_work` (8 full canvases) rather than per-instance raster cost
-(Phase L); the transform floor is 4×4-only with one order-0 byte model per
+(Phase M); the transform floor is 4×4-only with one order-0 byte model per
 DC/AC container — block-size extension and per-coefficient-position contexts
 are Phase-O surface (Phase M); the accounting fix for inline rANS models
 changes the `model_bytes`/`residual_bytes` split of streams carrying rANS
@@ -198,16 +219,24 @@ residuals (bucket totals are unchanged; Phase M receipt); the fixed-heuristic
 scroll-by-7 court was re-measured after Phase M: the transform floor absorbs
 the dense scroll frames at ~950 B, so the probe-blind stream is now measured
 by cost (8.1×, was 11.5× by rebase pre-M; copy blindness unchanged) (Phase
-M receipt).
+M receipt); generator discovery is whole-frame only in v1 — generic and
+rectangular-region generator fits are Phase-O/Q surface (Phase N); pure
+ramps are now explained procedurally, so the Phase-M full-range-ramp court
+was re-measured to `generator` winners (recorded in the Phase M/N receipts);
+seeded noise is author-only and never discovered by the inverse encoder —
+the measured RAW flattening for unknowable noise is structural, not a
+compression claim (Phase N receipt).
 
 ## Frozen (format decisions)
 
 v1 `.vole` grammar (docs/format-v1.md), materializer painter semantics
-(including palette-index resolution, the Phase-L affine source map, and the
-Phase-M additive transform-residual algebra), time model (explicit advances
+(including palette-index resolution, the Phase-L affine source map, the
+Phase-M additive transform-residual algebra, and the Phase-N generator
+programs), time model (explicit advances
 only — never implicit stepping), limits
 profile 1, integrity trailer, rANS normative constants (docs/phase-f.md),
 transform constants (docs/phase-m.md: kind-2 residual block grammar, lifting
-multipliers, transform id 0). v1
+multipliers, transform id 0), generator constants (docs/phase-n.md:
+generator kinds, parameter domains, program wire bytes). v1
 continues to *extend* per sealed phase (tags 0x21–0x30, residual block kinds
-0–2) with old streams re-parsed unchanged.
+0–2, object tag 0x07) with old streams re-parsed unchanged.

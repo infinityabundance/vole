@@ -347,6 +347,11 @@ fn paint_object(
     let dy = inst.y;
     let w = obj.width();
     let h = obj.height();
+    if let Some(gen) = obj.generator() {
+        // Phase N: compute every sample of the painted box from the bounded
+        // integer program (clipped to the canvas, exactly like a fill).
+        return paint_generator(canvas, gen, w, h, dx, dy);
+    }
     match obj.indices() {
         // Palette-index raster: resolve every index through the instance's
         // bound palette. Unbound instance or undeclared palette => typed
@@ -385,23 +390,30 @@ fn paint_affine(
 ) -> Result<(), VoleError> {
     let ow = i64::from(obj.width());
     let oh = i64::from(obj.height());
-    // Resolve the sample source once: a Gray8 raster, a fill value, or a
-    // palette-entry lookup (index rasters need the instance's binding).
+    // Resolve the sample source once: a Gray8 raster, a fill value, a
+    // palette-entry lookup (index rasters need the instance's binding), or a
+    // bounded procedural program (Phase N: the sampled source value is the
+    // generator's value at the source coordinate).
     enum Kind<'a> {
         Raster(&'a [u8]),
         Fill(u8),
         Index(&'a [u8], &'a [u8]), // indices + palette entries
+        Generator(crate::generator::Generator),
     }
-    let kind: Kind<'_> = match obj.indices() {
-        Some(indices) => {
-            let palette_id = state.binding(inst.id).ok_or(VoleError::UnknownPalette)?;
-            let entries = state.palette(palette_id).ok_or(VoleError::UnknownPalette)?;
-            Kind::Index(indices, entries)
+    let kind: Kind<'_> = if let Some(gen) = obj.generator() {
+        Kind::Generator(gen)
+    } else {
+        match obj.indices() {
+            Some(indices) => {
+                let palette_id = state.binding(inst.id).ok_or(VoleError::UnknownPalette)?;
+                let entries = state.palette(palette_id).ok_or(VoleError::UnknownPalette)?;
+                Kind::Index(indices, entries)
+            }
+            None => match obj.samples() {
+                Some(raster) => Kind::Raster(raster),
+                None => Kind::Fill(obj.fill_value().unwrap_or(0)),
+            },
         }
-        None => match obj.samples() {
-            Some(raster) => Kind::Raster(raster),
-            None => Kind::Fill(obj.fill_value().unwrap_or(0)),
-        },
     };
     let cw = i64::from(canvas.width());
     let ch = i64::from(canvas.height());
@@ -414,6 +426,7 @@ fn paint_affine(
             let v = match kind {
                 Kind::Raster(raster) => raster[(sv * ow + su) as usize],
                 Kind::Fill(value) => value,
+                Kind::Generator(gen) => gen.sample(su, sv),
                 Kind::Index(indices, entries) => {
                     let idx = indices[(sv * ow + su) as usize];
                     if usize::from(idx) >= entries.len() {
@@ -426,6 +439,41 @@ fn paint_affine(
                 u32::try_from(x).expect("x in canvas"),
                 u32::try_from(y).expect("y in canvas"),
                 v,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Paint a procedural generator object (Phase N): compute every sample of the
+/// declared box from the bounded integer program. Bounds behave exactly like
+/// a fill blit (clipped at the borders, out-of-canvas dropped); work is one
+/// sample per painted pixel, the same class as a raster blit.
+fn paint_generator(
+    canvas: &mut Canvas,
+    gen: crate::generator::Generator,
+    w: u32,
+    h: u32,
+    dx: i64,
+    dy: i64,
+) -> Result<(), VoleError> {
+    let cw = i64::from(canvas.width());
+    let ch = i64::from(canvas.height());
+    let y0 = dy.max(0);
+    let y1 = (dy + i64::from(h)).min(ch);
+    let x0 = dx.max(0);
+    let x1 = (dx + i64::from(w)).min(cw);
+    if y0 >= y1 || x0 >= x1 {
+        return Ok(());
+    }
+    for cty in y0..y1 {
+        let ly = cty - dy;
+        for ctox in x0..x1 {
+            let lx = ctox - dx;
+            canvas.set(
+                u32::try_from(ctox).unwrap(),
+                u32::try_from(cty).unwrap(),
+                gen.sample(lx, ly),
             );
         }
     }

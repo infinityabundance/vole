@@ -35,9 +35,17 @@ impl ContentId {
 
 /// Canonical record bytes for an object (the encoder form described above),
 /// independent of its id. The tag constants mirror the format-v1 object-decl
-/// tags: `0x02` fill, `0x01` Gray8 raster, `0x05` palette-index raster.
+/// tags: `0x02` fill, `0x01` Gray8 raster, `0x05` palette-index raster,
+/// `0x07` procedural generator (Phase N).
 fn canonical_object_record(obj: &Object) -> Vec<u8> {
     let mut out = Vec::with_capacity(16);
+    if let Some(gen) = obj.generator() {
+        out.push(0x07); // object-generator record tag
+        out.extend_from_slice(&obj.width().to_le_bytes());
+        out.extend_from_slice(&obj.height().to_le_bytes());
+        out.extend_from_slice(&gen.program_bytes());
+        return out;
+    }
     match obj.fill_value() {
         Some(v) => {
             out.push(0x02); // object-fill record tag

@@ -41,7 +41,9 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Transform-vs-point same-delta comparison | ADOPTED (measured) | Phase M: 480×270 dense smooth delta — transform block 5 906 B vs 549 268 B point container (93×); the floor is probe-reachable (Exhaustive == FixedHeuristic J 1.000 on drift content) |
 | Accounting sub-bucket for inline entropy models | ADOPTED | Phase M: `model_bytes` excluded from `residual_bytes` so the ten buckets sum exactly; fixes the latent double count of 512 B rANS models (recorded in the Phase M receipt) |
 | Transform residual | ADOPTED | Phase M (see rows above) |
-| Procedural generators | PROPOSED | pending |
+| Bounded procedural generators (gradient / checker / periodic sawtooth / seeded noise as immutable content programs; object tag 0x07) | ADOPTED | Phase N: 1920×1080 drifting-gradient flagship — 12 frames in **706 B** (35 245× vs raw), winners `generator×12`, all frames byte-exact; authored full-HD frames 98–105 B (≈ 20 000×); noise stays RAW (unknowable seed is never discovered — measured negative control); hostile wire + identity + accounting courts (`tests/phase_n.rs`, `src/generator.rs`) |
+| Whole-frame generator discovery with exact residual closure | ADOPTED | Phase N: content-derived fits (gradient / checker lattice / period lattice), O(w+h) prefilter + normative render validation; a fit that is not exact is admissible only as `generator_residual` with its correction counted (gate ≥ 15/16 pixels); pure ramps are now explained procedurally (Phase-M ramp court re-measured, recorded) |
+| Procedural generators | ADOPTED | Phase N (see rows above) |
 | Partial materialization (tile/rect) | PROPOSED | pending |
 | Resolution-independent procedural state | PROPOSED | pending |
 | DSFB-governed search | PROPOSED (non-normative) | pending courts |

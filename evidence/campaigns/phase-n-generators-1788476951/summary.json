@@ -1,0 +1,64 @@
+{
+  "phase": "N",
+  "semantics": "bounded procedural generators (normative content programs, object tag 0x07). A generator object stores a small deterministic integer program instead of samples; the materializer computes each sample of the painted box at materialization. Four v1 programs: Gradient v = (base + sx*x + sy*y) mod 256; Checker (cell x cell squares alternating a/b, floor division parity); Periodic sawtooth v = (base + sx*(x mod p) + sy*(y mod p)) mod 256 with explicit period; Noise (seeded splitmix64 finalizer over the mixed position). Integer only, work bounded by the painted box (same class as a raster blit), no state, no loops. Program wire = kind u8 + params; record = 0x07 id w h program; identity = BLAKE3 over 0x07 w h program (matches the encoder registry so generator content reuses exactly). Encoder: whole-frame GENERATOR family fits a deterministic bounded set of content-derived programs (gradient fit from origin edges; checker over a bounded cell lattice; periodic over a bounded period lattice; noise is never fitted - seed discovery is unbounded search and must not masquerade as a win), each spot-checked on O(w+h) and validated by rendering the normative field and comparing with the target byte-for-byte. An inexact fit is presented only as a generator+residual candidate with its exact correction counted (gate: fit explains >= 15/16 of the pixels). FramePlan.generators: Full (all fits) / Probe (gradient only, fixed heuristic + DSFB sweep) / Off; DSFB Full when generator/generator_residual is active.",
+  "candidate_gates": {
+    "fit_prefilter": "O(w+h) spot checks on row 0 / column 0 / period-closure cells",
+    "validation": "normative render of the full field == target (byte-for-byte)",
+    "residual_gate": "exact-correction candidate only when the fit explains >= 15/16 of the pixels",
+    "checker_cells": [1, 2, 4, 8, 16, 32],
+    "periodic_periods": [2, 4, 8, 16, 32, 64, 128, 256],
+    "noise_fits": "never (unbounded seed search)"
+  },
+  "courts": {
+    "drift_flag_1920x1080": {
+      "content": "12 full-HD pure wrap-gradient frames drifting in phase (each frame an exact integer program)",
+      "frames": 12,
+      "vole_bytes": 706,
+      "raw_all_bytes": 24883200,
+      "ratio_raw_x": 35245,
+      "winners": "generatorx12",
+      "exact": true,
+      "encode_ms": 6499
+    },
+    "authored_1920x1080": {
+      "content": "one full-HD frame per kind authored directly as a generator object",
+      "gradient_bytes": 101,
+      "checker_bytes": 98,
+      "periodic_bytes": 105,
+      "noise_bytes": 100,
+      "raw_frame_bytes": 2073600,
+      "raw_vs_stored_x": [20531, 21159, 19749, 20736],
+      "exact": true
+    },
+    "noise_192x128_negative": {
+      "content": "unknowable full-canvas noise",
+      "vole_bytes": 24667,
+      "winners": "raw",
+      "exact": true,
+      "note": "fits fail on random content; a seed that merely relocates bits never wins the court"
+    },
+    "closure_1920x160": {
+      "content": "pure gradient frame 0, then a wide inverted band the generator cannot express",
+      "frames": 2,
+      "frame1_winner": "transform_residual",
+      "frame1_payload_bytes": 5860,
+      "band_px": 10560,
+      "raw_frame_bytes": 307200,
+      "winners": "generatorx1 transform_residualx1",
+      "exact": true,
+      "note": "the band is 2-D dense so the transform floor closes it; the generator+residual closure itself wins on the 192x128 dust court (tests/phase_n.rs)"
+    }
+  },
+  "hostile": {
+    "parse": "out-of-domain slope, unknown program kind, oversized declared box, truncation -> typed (NonCanonicalEncoding / DimensionTooLarge / Truncated)",
+    "unit": "program wire roundtrip, domain checks, deterministic semantics for every kind (src/generator.rs)"
+  },
+  "all_streams_exact": true,
+  "test_count": "tests/phase_n.rs (10 courts) + src/generator.rs unit courts; full gate: cargo fmt --check, cargo check --all-targets, cargo clippy --all-targets --all-features -- -D warnings, cargo test --all-features (186 tests, 0 failures, dev and release)",
+  "notes": [
+    "Normative format change: object tag 0x07 (procedural generator record: kind u8 + parameters; domain |sx|,|sy| <= 2^24, cell/period in 1..=4096). No new Limits field: generator work is exactly the painted box, the same class as a raster blit.",
+    "Behavioral re-measurement recorded: pure wrap-ramp content that Phase M's court used to demonstrate the transform floor is now explained procedurally (generator winners; the phase_m full-range-ramp court assertion updated to the post-N reality). The transform floor remains the winner on curved/non-generator dense deltas (Phase M courts unchanged there).",
+    "Recorded boundaries: whole-frame generator discovery only in v1 (rect/generic fits are Phase-O/Q surface); checker/periodic fits only when their spot checks pass, gradient fit is the fixed-heuristic/DSFB probe; seeded noise is author-only (direct ingest) and never discovered by the inverse encoder (measured negative control).",
+    "The generator+residual algebra is exact: an approximation that cannot reproduce the target is admissible only with its full correction counted (gate 15/16), never silent."
+  ]
+}

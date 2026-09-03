@@ -111,12 +111,11 @@ fn tr_len(tr: &Transition) -> u64 {
 }
 
 /// Serialized declaration bytes of a never-before-seen object.
-fn decl_bytes(w: u32, h: u32, content: &Content) -> u64 {
-    let _ = w;
-    let _ = h;
+fn decl_bytes(_w: u32, _h: u32, content: &Content) -> u64 {
     match content {
         Content::Fill(_) => FILL_DECL,
         Content::Raster(data) => OBJECT_DECL_HEADER + data.len() as u64,
+        Content::Generator(gen) => OBJECT_DECL_HEADER + gen.program_bytes().len() as u64,
     }
 }
 
@@ -127,6 +126,9 @@ enum Content {
     Fill(u8),
     /// Tight row-major Gray8 raster.
     Raster(Vec<u8>),
+    /// A bounded procedural content program (Phase N): samples are computed
+    /// at materialization, never stored.
+    Generator(crate::generator::Generator),
 }
 
 /// Canonical record bytes for content identity — byte-identical to the object
@@ -146,6 +148,12 @@ fn content_record(w: u32, h: u32, content: &Content) -> Vec<u8> {
             out.extend_from_slice(&w.to_le_bytes());
             out.extend_from_slice(&h.to_le_bytes());
             out.extend_from_slice(data);
+        }
+        Content::Generator(gen) => {
+            out.push(0x07);
+            out.extend_from_slice(&w.to_le_bytes());
+            out.extend_from_slice(&h.to_le_bytes());
+            out.extend_from_slice(&gen.program_bytes());
         }
     }
     out
@@ -219,6 +227,111 @@ fn encode_point_block(pts: &[(i64, i64, u8)]) -> Vec<u8> {
 
 fn block_is_rans(block: &[u8]) -> bool {
     block.first() == Some(&rans::KIND_RANS)
+}
+
+// ---------------------------------------------------------------------------
+// Phase N: whole-frame procedural-generator discovery
+// ---------------------------------------------------------------------------
+// The encoder probes a small deterministic set of *content-derived* generator
+// fits (never an unbounded parameter search): a gradient fit measured from
+// the origin edges, a checker fit over a bounded cell lattice, and a
+// periodic-sawtooth fit over a bounded period lattice. Every fit is first
+// spot-checked on O(w+h) samples (cheap prefilter — mirrors the row-hash
+// prefilter used for large-canvas copies) and then validated by rendering
+// the *normative* generator field and comparing it with the target, so a
+// candidate can never win on appearance. Noise is deliberately never fitted:
+// discovering a seed by search is unbounded work, and a seed that merely
+// relocates the target's bits must not masquerade as a procedural win (§21,
+// §62-§63). A fit that passes the prefilter but is not exact is presented as
+// a generator+residual candidate with its exact correction counted, but only
+// when the fit explains at least 15/16 of the pixels (otherwise RAW is the
+// honest floor).
+
+/// Generator fits that pass their spot-check prefilter, in deterministic
+/// evaluation order. `probe` restricts the search to the cheap gradient fit
+/// (fixed heuristic / DSFB rotating sweep).
+fn fit_generators(target: &Canvas, probe: bool) -> Vec<crate::generator::Generator> {
+    use crate::generator::Generator;
+    let w = target.width() as usize;
+    let h = target.height() as usize;
+    let s = target.as_slice();
+    let at = |x: usize, y: usize| s[y * w + x];
+    let wrapdiff = |a: u8, b: u8| (i64::from(a) - i64::from(b)).rem_euclid(256);
+    if w < 2 || h < 2 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    // -- gradient -------------------------------------------------------------
+    let dx = wrapdiff(at(1, 0), at(0, 0));
+    let dy = wrapdiff(at(0, 1), at(0, 0));
+    if dx != 0 || dy != 0 {
+        let row_ok = (0..w - 1).all(|x| wrapdiff(at(x + 1, 0), at(x, 0)) == dx);
+        let col_ok = (0..h - 1).all(|y| wrapdiff(at(0, y + 1), at(0, y)) == dy);
+        let diag_ok = wrapdiff(at(1, 1), at(0, 0)) == (dx + dy).rem_euclid(256);
+        if row_ok && col_ok && diag_ok {
+            out.push(Generator::Gradient {
+                base: at(0, 0),
+                sx: dx,
+                sy: dy,
+            });
+        }
+    }
+    if probe {
+        return out;
+    }
+    // -- checker (bounded cell lattice) ----------------------------------------
+    for cs in [1u32, 2, 4, 8, 16, 32] {
+        let c = cs as usize;
+        // Need room for two cells along both axes (spot checks read (2c,0)
+        // and (0,2c)).
+        if w <= 2 * c || h <= 2 * c {
+            continue;
+        }
+        let (a, b) = (at(0, 0), at(c, 0));
+        if a == b {
+            continue;
+        }
+        // Parity spots: (2c,0) and (0,2c) are again `a`; (0,c) is `b`.
+        if at(2 * c, 0) == a && at(0, 2 * c) == a && at(0, c) == b && at(c, c) == a {
+            out.push(Generator::Checker { a, b, cell: cs });
+        }
+    }
+    // -- periodic sawtooth (bounded period lattice) ---------------------------
+    for p in [2u32, 4, 8, 16, 32, 64, 128, 256] {
+        let pn = p as usize;
+        // Period-closure spot checks read column/row `pn`.
+        if w <= pn || h <= pn {
+            continue;
+        }
+        let sx = wrapdiff(at(1, 0), at(0, 0));
+        let sy = wrapdiff(at(0, 1), at(0, 0));
+        if sx == 0 && sy == 0 {
+            continue;
+        }
+        // The row difference must be steady and the field must close its
+        // period on both axes at the origin edges.
+        let steady = wrapdiff(at(2, 0), at(1, 0)) == sx && wrapdiff(at(0, 2), at(0, 1)) == sy;
+        if steady && at(pn, 0) == at(0, 0) && at(0, pn) == at(0, 0) && at(pn, pn) == at(0, 0) {
+            out.push(Generator::Periodic {
+                base: at(0, 0),
+                sx,
+                sy,
+                period: p,
+            });
+        }
+    }
+    out
+}
+
+/// Render the normative field of a generator over `w × h` into a canvas.
+fn render_field(w: u32, h: u32, gen: crate::generator::Generator) -> Result<Canvas, VoleError> {
+    let mut d = Vec::with_capacity((w as usize) * (h as usize));
+    for y in 0..i64::from(h) {
+        for x in 0..i64::from(w) {
+            d.push(gen.sample(x, y));
+        }
+    }
+    Canvas::from_parts(w, h, d)
 }
 
 /// Number of coded blocks in a transform residual block (mask popcount), 0 on
@@ -318,7 +431,7 @@ pub fn build_transform_block(base: &Canvas, target: &Canvas) -> Option<Vec<u8>> 
 
 /// Complete physical accounting of a `.vole` byte stream with every byte
 /// classified into a declared bucket. The ten primary buckets sum to
-/// `total_bytes`; the three `*_split` fields are informational sub-buckets of
+/// `total_bytes`; the `*_split` fields are informational sub-buckets of
 /// `object_bytes` and are excluded from that invariant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RepresentationCost {
@@ -359,6 +472,10 @@ pub struct RepresentationCost {
     /// Informational: palette-index object declarations; a sub-bucket of
     /// `object_bytes` (index planes are structural, not RAW fallback).
     pub index_object_bytes: u64,
+    /// Informational: procedural-generator object declarations (Phase N: the
+    /// record stores the bounded program, never the samples); a sub-bucket of
+    /// `object_bytes`.
+    pub generator_object_bytes: u64,
     /// Informational: the literal Gray8 samples inside raster objects (the
     /// RAW fallback payload of the stream).
     pub raster_object_sample_bytes: u64,
@@ -402,6 +519,7 @@ pub fn account_stream(bytes: &[u8]) -> Result<RepresentationCost, VoleError> {
     let mut raster_objects = 0u64;
     let mut fill_objects = 0u64;
     let mut index_objects = 0u64;
+    let mut generator_bytes = 0u64;
     let mut raster_samples = 0u64;
     let mut index_samples = 0u64;
     // Header is fixed width (24 bytes): magic(4)+reserved(1)+fver(2)+univ(4)+
@@ -436,6 +554,23 @@ pub fn account_stream(bytes: &[u8]) -> Result<RepresentationCost, VoleError> {
                 r.skip(usize::try_from(n).map_err(|_| VoleError::ArithmeticOverflow)?)?;
                 index_objects += 1;
                 index_samples += n;
+            }
+            0x07 => {
+                // Procedural-generator object declaration (Phase N): the
+                // record carries the bounded program, never the samples.
+                let _id = r.pull::<u32>()?;
+                let _w = r.pull::<u32>()?;
+                let _h = r.pull::<u32>()?;
+                let kind = r.u8()?;
+                let n: usize = match kind {
+                    crate::generator::GEN_GRADIENT => 9,  // base u8 + 2 x i32
+                    crate::generator::GEN_CHECKER => 6,   // a u8 + b u8 + cell u32
+                    crate::generator::GEN_PERIODIC => 13, // base u8 + 2 x i32 + period u32
+                    crate::generator::GEN_NOISE => 8,     // seed u64
+                    _ => return Err(VoleError::NonCanonicalEncoding),
+                };
+                r.skip(n)?;
+                generator_bytes += OBJECT_DECL_HEADER + 1 + n as u64;
             }
             0x06 => {
                 // Pre-checkpoint palette-table record (Phase J): mutable
@@ -610,7 +745,11 @@ pub fn account_stream(bytes: &[u8]) -> Result<RepresentationCost, VoleError> {
     cost.raster_object_bytes = raster_objects * OBJECT_DECL_HEADER + raster_samples;
     cost.fill_object_bytes = fill_objects * FILL_DECL;
     cost.index_object_bytes = index_objects * OBJECT_DECL_HEADER + index_samples;
-    cost.object_bytes = cost.raster_object_bytes + cost.fill_object_bytes + cost.index_object_bytes;
+    cost.generator_object_bytes = generator_bytes;
+    cost.object_bytes = cost.raster_object_bytes
+        + cost.fill_object_bytes
+        + cost.index_object_bytes
+        + cost.generator_object_bytes;
     cost.raster_object_sample_bytes = raster_samples;
     Ok(cost)
 }
@@ -831,6 +970,23 @@ enum Plan {
     /// is the target's own sub-rectangle and no rectangle is shadowed by a
     /// disagreeing overlay point.
     Regions { rects: Vec<RegionSpec> },
+    /// Reset to one full-canvas instance of a bounded procedural generator
+    /// (Phase N): the frame content is the generator's computed field, so the
+    /// declaration stores a program, never the samples. Valid iff the
+    /// normative render equals the target exactly.
+    Generator {
+        new_content: bool,
+        gen: crate::generator::Generator,
+    },
+    /// Generator reset plus a one-shot point residual closing the exactness
+    /// gap (`F = M(generator) ⊕_ρ R`, Phase N): every generator candidate
+    /// carries its exact residual correction — an approximation that cannot
+    /// reproduce the target is admissible only with the residual counted.
+    GenResidual {
+        new_content: bool,
+        gen: crate::generator::Generator,
+        block: Vec<u8>,
+    },
 }
 
 /// Candidate under evaluation.
@@ -1053,6 +1209,7 @@ impl<'a> Encoder<'a> {
         let obj = match &content {
             Content::Fill(v) => Object::fill(w, h, *v)?,
             Content::Raster(data) => Object::raster(w, h, data.clone())?,
+            Content::Generator(gen) => Object::procedural(w, h, *gen)?,
         };
         self.st.declare_object(ObjectId(id), obj)?;
         self.index.insert(cid, id);
@@ -1078,6 +1235,28 @@ impl<'a> Encoder<'a> {
                 y: 0,
             },
         ]
+    }
+
+    /// Declare (if new) a generator object and reset state to one full-canvas
+    /// instance of it; returns the applied reset transitions and the
+    /// declaration bytes they introduce (Phase N).
+    fn generator_reset(
+        &mut self,
+        gen: crate::generator::Generator,
+        new_content: bool,
+    ) -> Result<(Vec<Transition>, u64), VoleError> {
+        let content = Content::Generator(gen);
+        let decl = if new_content {
+            decl_bytes(self.w, self.h, &content)
+        } else {
+            0
+        };
+        let oid = self.ensure_object(content)?;
+        let trs = self.reset_trs(oid);
+        for tr in &trs {
+            tr.apply(&mut self.st)?;
+        }
+        Ok((trs, decl))
     }
 
     /// Materialize a candidate program over a *clone* of the working state.
@@ -1146,6 +1325,12 @@ impl<'a> Encoder<'a> {
         c.valid = true;
         ev.consider(c);
 
+        // Phase N: whole-frame procedural-generator discovery on the frame-0
+        // content (full fit set — frame 0 is a cold start for every strategy).
+        if !self.opts.raster_only {
+            self.consider_generators(target, &mut ev, Mode::Full, true);
+        }
+
         let stats = ev.family_stats();
         let winner = ev
             .best
@@ -1154,6 +1339,14 @@ impl<'a> Encoder<'a> {
             Plan::ClearToBg => {}
             Plan::Reset { .. } => {
                 let oid = self.ensure_object(content)?;
+                let trs = self.reset_trs(oid);
+                for tr in &trs {
+                    tr.apply(&mut self.st)?;
+                }
+                self.checkpoint_instances = self.st.instances().cloned().collect();
+            }
+            Plan::Generator { gen, .. } => {
+                let oid = self.ensure_object(Content::Generator(*gen))?;
                 let trs = self.reset_trs(oid);
                 for tr in &trs {
                     tr.apply(&mut self.st)?;
@@ -1178,6 +1371,9 @@ impl<'a> Encoder<'a> {
             winner_interval_bytes: 0,
             object_decl_bytes: match &winner.plan {
                 Plan::Reset { .. } => decl_bytes(self.w, self.h, &self.content_of_target(target)),
+                Plan::Generator { gen, .. } => {
+                    decl_bytes(self.w, self.h, &Content::Generator(*gen))
+                }
                 _ => 0,
             },
             residual_points: 0,
@@ -1240,6 +1436,12 @@ impl<'a> Encoder<'a> {
                 }
                 Mode::Off => {}
             }
+            // Phase N: whole-frame procedural-generator discovery.
+            match plan.generators {
+                Mode::Full => self.consider_generators(target, &mut ev, Mode::Full, false),
+                Mode::Probe => self.consider_generators(target, &mut ev, Mode::Probe, false),
+                Mode::Off => {}
+            }
         }
 
         let stats = ev.family_stats();
@@ -1294,6 +1496,37 @@ impl<'a> Encoder<'a> {
                     emitted_cost += tr_len(tr);
                     emitted.push(tr.clone());
                 }
+                self.last_copy_ops.clear();
+                self.last_translation = None;
+            }
+            Plan::Generator { new_content, gen } => {
+                let (trs, d) = self.generator_reset(*gen, *new_content)?;
+                decl = d;
+                for tr in &trs {
+                    emitted_cost += tr_len(tr);
+                    emitted.push(tr.clone());
+                }
+                self.last_copy_ops.clear();
+                self.last_translation = None;
+            }
+            Plan::GenResidual {
+                new_content,
+                gen,
+                block,
+            } => {
+                // Phase N: reset to the generator field, then carry the exact
+                // point residual that closes the approximation gap.
+                let (trs, d) = self.generator_reset(*gen, *new_content)?;
+                decl = d;
+                for tr in &trs {
+                    emitted_cost += tr_len(tr);
+                    emitted.push(tr.clone());
+                }
+                residual_points = decode_point_count(block, self.w, self.h, &limits);
+                emitted_cost += 5 + block.len() as u64;
+                emitted.push(Transition::Residual {
+                    block: block.clone(),
+                });
                 self.last_copy_ops.clear();
                 self.last_translation = None;
             }
@@ -1566,6 +1799,7 @@ impl<'a> Encoder<'a> {
     /// object (family `raw`); when the content already exists in the object
     /// library it is exact reuse (family `exact_ref`, zero declaration bytes).
     /// `force_raw` labels the reuse as `raw` (VOLE raster-only baseline mode).
+    /// Evaluate one reset-to-full-canvas-object candidate (RAW sentinel).
     fn consider_reset(&mut self, target: &Canvas, ev: &mut Eval, force_raw: bool) {
         let content = self.content_of_target(target);
         ev.add_work(u64::from(self.w) * u64::from(self.h));
@@ -1583,6 +1817,90 @@ impl<'a> Encoder<'a> {
         );
         c.valid = true;
         ev.consider(c);
+    }
+
+    /// Phase N: whole-frame procedural-generator candidates. Every candidate
+    /// is validated by rendering the *normative* generator field and comparing
+    /// it with the target byte-for-byte; a fit that is not exact is presented
+    /// only as a generator+residual candidate with its exact correction
+    /// counted, and only when the fit explains at least 15/16 of the pixels
+    /// (otherwise RAW is the honest floor). `frame0` disables the
+    /// residual-closure candidate (frame 0 cannot carry canvas ops).
+    fn consider_generators(&self, target: &Canvas, ev: &mut Eval, mode: Mode, frame0: bool) {
+        if self.opts.raster_only || mode == Mode::Off {
+            return;
+        }
+        let fits = fit_generators(target, mode == Mode::Probe);
+        if fits.is_empty() {
+            return;
+        }
+        let wh = u64::from(self.w) * u64::from(self.h);
+        for gen in fits {
+            if gen.check().is_err() {
+                continue;
+            }
+            // A zero-slope program is a uniform fill (cheaper elsewhere).
+            let uniform = matches!(
+                gen,
+                crate::generator::Generator::Gradient { sx: 0, sy: 0, .. }
+                    | crate::generator::Generator::Periodic { sx: 0, sy: 0, .. }
+            );
+            if uniform {
+                continue;
+            }
+            ev.add_work(wh);
+            let content = Content::Generator(gen);
+            let new = self.is_new_content(&content);
+            let decl = if new {
+                decl_bytes(self.w, self.h, &content)
+            } else {
+                0
+            };
+            let render = match render_field(self.w, self.h, gen) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let label = if new { "generator" } else { "exact_ref" };
+            if render.as_slice() == target.as_slice() {
+                let payload = if frame0 {
+                    decl + checkpoint_bytes(1)
+                } else {
+                    RESET_INTERVAL_COST + decl
+                };
+                let mut c = Cand::new(
+                    label,
+                    Plan::Generator {
+                        new_content: new,
+                        gen,
+                    },
+                    payload,
+                );
+                c.valid = true;
+                ev.consider(c);
+            } else if !frame0 {
+                // Exact residual correction, counted in full (§21: a
+                // hypothesis that cannot reproduce the target must carry its
+                // residual or lose the court).
+                let pts = diff_points(&render, target);
+                let k = pts.len() as u64;
+                if k * 16 <= wh {
+                    ev.add_work(k);
+                    let block = encode_point_block(&pts);
+                    let payload = RESET_INTERVAL_COST + decl + 5 + block.len() as u64;
+                    let mut c = Cand::new(
+                        "generator_residual",
+                        Plan::GenResidual {
+                            new_content: new,
+                            gen,
+                            block,
+                        },
+                        payload,
+                    );
+                    c.valid = true;
+                    ev.consider(c);
+                }
+            }
+        }
     }
 
     /// Evaluate one 1-rect "screen scroll" candidate (rect plus residual) and,
@@ -1978,9 +2296,12 @@ impl<'a> Encoder<'a> {
         if obj.width() != self.w || obj.height() != self.h {
             return;
         }
-        let content = match obj.fill_value() {
-            Some(v) => Content::Fill(v),
-            None => Content::Raster(obj.samples().expect("raster object").to_vec()),
+        let content = match obj.generator() {
+            Some(gen) => Content::Generator(gen),
+            None => match obj.fill_value() {
+                Some(v) => Content::Fill(v),
+                None => Content::Raster(obj.samples().expect("stored object").to_vec()),
+            },
         };
         let test = |dx: i64, dy: i64, ev: &mut Eval| {
             ev.add_work(u64::from(self.w) * u64::from(self.h));
@@ -2212,6 +2533,24 @@ fn blit_matches(
                         let sx = (x - dx) as usize;
                         let sy = (y - dy) as usize;
                         data[sy * w as usize + sx]
+                    } else {
+                        bg
+                    };
+                    if target.get(x as u32, y as u32) != expected {
+                        return false;
+                    }
+                }
+            }
+            true
+        }
+        Content::Generator(gen) => {
+            // A generator content blit samples the program at the translated
+            // content-local coordinate (the same rule the materializer runs).
+            for y in 0..ch {
+                for x in 0..cw {
+                    let inside = x >= dx && y >= dy && x < dx + w as i64 && y < dy + h as i64;
+                    let expected = if inside {
+                        gen.sample(x - dx, y - dy)
                     } else {
                         bg
                     };

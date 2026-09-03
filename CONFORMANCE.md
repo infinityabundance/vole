@@ -41,6 +41,9 @@ independently re-derived reference in `proof/`.
 | Phase M: transform materialization == target byte-for-byte end-to-end (drift / wrap-ramp / textured) | PASS |
 | Phase M: noise stays RAW; tiny diffs never evaluate the family; oracle min-payload invariant holds | PASS |
 | Phase M: hostile kind-2 streams typed at parse (id/padding/length/truncation) and materialization (EntropyCorrupt / OutOfBounds) | PASS |
+| Phase N: generator objects materialize byte-exact vs independent references (all four kinds, plain + affine + motion) | PASS |
+| Phase N: pure-gradient sequences are discovered procedurally (35 245× flagship); noise and wrong-seed controls stay RAW | PASS |
+| Phase N: generator+residual closure exact; hostile generator wire forms typed; identity == wire record; accounting sums | PASS |
 
 ## Goldens
 

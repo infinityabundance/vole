@@ -181,10 +181,13 @@ fn brightness_drift_is_transform_coded_and_stays_exact() -> Result<(), VoleError
 
 #[test]
 fn drifting_full_range_ramp_is_exact_and_uses_the_transform_floor() -> Result<(), VoleError> {
-    // A wrap-around ramp across the full Gray8 scale: still dense and smooth
-    // within every block. Winners may mix with raw on early frames (frame 0
-    // is the raw base), but the transform floor must appear and everything
-    // must stay byte-exact.
+    // A wrap-around ramp across the full Gray8 scale is dense and smooth
+    // within every block, so the Phase-M transform floor serves it — **until
+    // Phase N**: the ramp is also an *exact integer gradient*, so the encoder
+    // now discovers the procedural explanation instead and the transform
+    // floor is never needed (measured post-N reality: every frame wins as
+    // `generator`). Everything stays byte-exact; the pure-ramp court thus
+    // demonstrates the ordering of explanations, not the floor.
     let (w, h) = (160u32, 120u32);
     let frames: Vec<Canvas> = (0..7)
         .map(|t| ramp_wrap_frame(w, h, (t as u64) * 7))
@@ -193,8 +196,8 @@ fn drifting_full_range_ramp_is_exact_and_uses_the_transform_floor() -> Result<()
     assert!(report.exact);
     let wins: Vec<&str> = report.decisions.iter().map(|d| d.winner_family).collect();
     assert!(
-        wins.contains(&"transform_residual"),
-        "drifting ramps must reach the transform floor: {wins:?}"
+        wins.iter().all(|f| *f == "generator"),
+        "pure ramps are procedurally explained after Phase N: {wins:?}"
     );
     let decoded = decoder::materialize_all(&decoder::decode_bytes(&report.vole)?)?;
     for (i, f) in decoded.iter().enumerate() {

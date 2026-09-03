@@ -92,6 +92,11 @@ pub struct FramePlan {
     /// whenever it could beat the point-list baselines; Probe only when the
     /// per-frame diff is dense (≥ 1/16 canvas).
     pub transform: Mode,
+    /// Phase N: whole-frame procedural-generator discovery. Full evaluates
+    /// the deterministic content fits (gradient / checker / periodic, each
+    /// validated by its normative render); Probe evaluates the gradient fit
+    /// only.
+    pub generators: Mode,
     /// Whether the previous frame's winner emitted copy ops available for a
     /// probe replay.
     pub replay_ops: bool,
@@ -111,6 +116,7 @@ impl FramePlan {
             copies: Mode::Full,
             regions: Mode::Full,
             transform: Mode::Full,
+            generators: Mode::Full,
             replay_ops: false,
             broaden: false,
         }
@@ -137,6 +143,7 @@ impl FramePlan {
             copies: Mode::Probe,
             regions: Mode::Probe,
             transform: Mode::Probe,
+            generators: Mode::Probe,
             replay_ops: true,
             broaden: false,
         }
@@ -284,6 +291,7 @@ impl DsfbModel {
             copies: Mode::Off,
             regions: Mode::Off,
             transform: Mode::Off,
+            generators: Mode::Off,
             replay_ops: true,
             broaden: false,
         };
@@ -298,6 +306,9 @@ impl DsfbModel {
         }
         if active.contains(&"transform_residual") {
             p.transform = Mode::Full;
+        }
+        if active.contains(&"generator") || active.contains(&"generator_residual") {
+            p.generators = Mode::Full;
         }
         // Deterministic rotating sweep (sentinel hypothesis): periodically
         // re-probe the non-active families so a silent regime change is found
@@ -314,6 +325,9 @@ impl DsfbModel {
             }
             if p.transform == Mode::Off {
                 p.transform = Mode::Probe;
+            }
+            if p.generators == Mode::Off {
+                p.generators = Mode::Probe;
             }
         }
         p

@@ -73,7 +73,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
-## CLI (Phase A–M surface)
+## CLI (Phase A–N surface)
 
 ```
 vole demo moving-rect [out.vole]
@@ -86,8 +86,8 @@ vole bench
 `vole encode` is the Phase-G raster-origin path: `in.raw` is a concatenated
 Gray8 sequence; the exhaustive inverse proceduralizer per frame evaluates
 RAW/FILL/UNCHANGED/EXACT_OBJECT_REF/SPARSE/COPY_RECT/TRANSLATION/
-RANS_RESIDUAL/REGIONS/TRANSFORM_RESIDUAL candidates, validates every
-candidate byte-exactly, emits the
+RANS_RESIDUAL/REGIONS/TRANSFORM_RESIDUAL/GENERATOR candidates, validates
+every candidate byte-exactly, emits the
 complete-cost winner, and decode-verifies the stream end-to-end before
 writing it.
 
