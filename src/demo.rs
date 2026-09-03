@@ -376,3 +376,144 @@ impl BlinkCourt {
         Ok(canvas)
     }
 }
+
+/// Phase-D scroll court: a canvas whose *whole content* wraps vertically by `S`
+/// rows each interval. This is expressed with **exactly two COPY_RECT** ops per
+/// interval (recycle `[S..H)` to the top and wrap `[0..S)` to the bottom), so
+/// COPY_RECT is genuinely load-bearing: intermediate frames are *not*
+/// reproducible from immutable painter State (the State is unchanged across
+/// intervals), yet every frame is reproduced byte-exactly by replaying the two
+/// rectangles. Oracle: `row y of frame t == initRow[(y + t·S) mod H]`.
+pub struct ScrollCourt {
+    /// Canvas width.
+    pub width: u32,
+    /// Canvas height.
+    pub height: u32,
+    /// Rows scrolled (wrapped) each interval.
+    pub scroll: u32,
+    /// Number of intervals (frames == intervals + 1).
+    pub intervals: u32,
+    /// Declared object id framing a non-periodic initial raster.
+    pub object_id: u32,
+}
+
+impl Default for ScrollCourt {
+    fn default() -> Self {
+        // A modest screen (96x96) so per-frame descriptor-vs-frame ratio is
+        // honest: COPY_RECT per-interval cost is size-independent (~2 rects),
+        // so larger screens amortize better; 96x96 keeps the byte count to
+        // report representative without being trivially large.
+        ScrollCourt {
+            width: 96,
+            height: 96,
+            scroll: 3,
+            intervals: 12,
+            object_id: 7,
+        }
+    }
+}
+
+impl ScrollCourt {
+    fn initial_raster(&self) -> Vec<u8> {
+        // Row `r` is filled with its own index value (non-periodic vertically);
+        // rows thus wrap-disambiguate every step.
+        let w = self.width as usize;
+        let h = self.height as usize;
+        let mut data = Vec::with_capacity(w * h);
+        for r in 0..h {
+            let v = (r % 256) as u8;
+            for _ in 0..w {
+                data.push(v);
+            }
+        }
+        data
+    }
+
+    /// VOLE bytes: an immutable ruler object + a one-instance checkpoint; each
+    /// interval carries exactly two COPY_RECT ops that wrap-scroll the previous
+    /// frame up by `self.scroll` rows.
+    pub fn vole(&self) -> Result<Vec<u8>, VoleError> {
+        let obj = Object::raster(self.width, self.height, self.initial_raster())?;
+        let inst = Instance {
+            id: InstanceId(1),
+            object_id: ObjectId(self.object_id),
+            x: 0,
+            y: 0,
+        };
+        let h = self.height as i64;
+        let s = self.scroll as i64;
+        let mut tl: Vec<(u64, Vec<Transition>)> = Vec::with_capacity(self.intervals as usize);
+        for k in 1u64..=u64::from(self.intervals) {
+            // Shift up: recycle prior rows [s..h) into the destination top.
+            let up = Transition::CopyRect {
+                src_x: 0,
+                src_y: s,
+                width: self.width,
+                height: (h - s) as u32,
+                dst_x: 0,
+                dst_y: 0,
+            };
+            // Wrap: recycle prior rows [0..s) to the bottom (vertical wrap).
+            let wrap = Transition::CopyRect {
+                src_x: 0,
+                src_y: 0,
+                width: self.width,
+                height: s as u32,
+                dst_x: 0,
+                dst_y: h - s,
+            };
+            tl.push((k, vec![up, wrap]));
+        }
+        encoder::encode_stream(
+            self.width,
+            self.height,
+            0,
+            &[(self.object_id, obj)],
+            &[inst],
+            &tl,
+        )
+    }
+
+    /// Independent oracle `.raw` bytes built strictly from the documented
+    /// mapping (no reliance on the compositor internals).
+    pub fn reference_raw(&self) -> Vec<u8> {
+        let init = self.initial_raster();
+        let w = self.width as usize;
+        let h = self.height as usize;
+        let s = self.scroll as usize;
+        let mut raw = Vec::new();
+        for t in 0..=self.intervals as usize {
+            // row y of frame t <- init row (y + t*s) mod h.
+            for y in 0..h {
+                let src_row = (y + t * s) % h;
+                raw.extend_from_slice(&init[src_row * w..src_row * w + w]);
+            }
+        }
+        raw
+    }
+
+    /// Materialize and byte-exact compare to the independent oracle.
+    pub fn materialize_and_verify(&self) -> Result<Vec<Canvas>, VoleError> {
+        let bytes = self.vole()?;
+        let parsed = decoder::decode_bytes(&bytes)?;
+        let frames = decoder::materialize_all(&parsed)?;
+        let mut got = Vec::new();
+        for c in &frames {
+            got.extend_from_slice(c.as_slice());
+        }
+        if got != self.reference_raw() {
+            return Err(VoleError::ApiConstraint("scroll diverged from oracle"));
+        }
+        Ok(frames)
+    }
+
+    /// Number of materializable frames.
+    pub fn frame_count(&self) -> u64 {
+        1 + u64::from(self.intervals)
+    }
+
+    /// Total raw raster bytes of the canonical frame sequence.
+    pub fn raw_bytes_all(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height) * self.frame_count()
+    }
+}

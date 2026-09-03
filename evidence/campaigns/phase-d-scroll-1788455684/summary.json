@@ -1,0 +1,10 @@
+{
+  "frames": 13,
+  "stream_bytes": 10063,
+  "raw_all_bytes": 119808,
+  "raw_over_stream": 11.9,
+  "frame0_blake3": "afc8d31368c5b07a187ad167c50c91ed8668ee7b249337da8da406e451159c20",
+  "last_frame_blake3": "3a6dae9dcc298d5beace7dbf8e2d983c27b388792b4934c43006940f46d63fa5",
+  "note": "stream stores ONE initial raster (immutable object) + per-interval 2 COPY_RECTs; incremental scroll cost is size-independent descriptors; oracle-verified independent",
+  "court": "96x96 wrap scroll (S=3) oracle-verified"
+}

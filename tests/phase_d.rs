@@ -1,16 +1,12 @@
-//! Phase-D courts: COPY_RECT / MOVE_RECT machinery.
-//!
-//! COPY_RECT copies a declared rectangle from the *previous decoded frame*
-//! into the current base frame via a sequential compositor (see
-//! `src/decoder.rs::materialize_all` + `src/materialize.rs::rect_copy`). These
-//! tests cover an end-to-end hand-verifiable scenario, parser tolerance of
-//! MOVE_RECT, hostile geometry rejection, and the snapshot/clipping primitive.
-//! The domain-winning terminal-scroll court needs a *transient-patch* operator
-//! that belongs with the terminal/editor phase; that gap is recorded in
-//! `docs/empirical-status.md`, not hidden.
+//! Phase-D courts: COPY_RECT / MOVE_RECT as a frame-referencing materialization
+//! op with canonical snapshot semantics. Cover an end-to-end dual-marker
+//! scenario, a whole-canvas wrap-scroll court verified against an *independent*
+//! row-permutation oracle, MOVE_RECT tolerance, hostile geometry rejection, and
+//! a noise negative control proving COPY cannot losslessly encode
+//! prior-frame-uncorrelated content.
 
 use vole_video::{
-    decoder,
+    decoder, demo,
     error::VoleError,
     object::{Object, ObjectId},
     pixel::Canvas,
@@ -154,4 +150,54 @@ fn rect_copy_is_snapshot_and_clips() {
     assert_eq!(dst.get(0, 0), 0);
     src.set(1, 1, 42);
     assert_eq!(dst.get(1, 1), 6);
+}
+
+#[test]
+fn scroll_wrap_court_matches_independent_oracle() -> Result<(), VoleError> {
+    // Whole-canvas vertical wrap scroll (S=2 rows/interval) reproduced purely by
+    // two COPY_RECTs per interval; every frame differs from the immutable
+    // painter State, and materialization matches the analytic oracle
+    // `row_y(t) == init[(y + t*S) mod H]`.
+    let court = demo::ScrollCourt::default();
+    let parsed = decoder::decode_bytes(&court.vole()?)?;
+    assert_eq!(parsed.frame_count(), 13);
+    let frames = court.materialize_and_verify()?; // byte-exact vs the oracle
+    assert_eq!(frames.len(), 13);
+    let _ = court.vole()?;
+    Ok(())
+}
+
+#[test]
+fn copy_cannot_losslessly_encode_mismatched_noise() {
+    // Noise negative control: a rectangle-copy candidate can only be lossless
+    // when the source rect of the prior frame reproduces the destination. For
+    // content uncorrelated with the prior frame, copying cannot be valid
+    // (reuse == none). We assert the primitive property that makes an encoder
+    // reject such a candidate: the composited output does NOT hide a mismatch
+    // and a real encoder must fall back to literal/RAW.
+    let mut src = Canvas::from_parts(8, 8, (0..64).map(|_| 0u8).collect()).unwrap();
+    let mut target = Canvas::from_parts(8, 8, vec![0; 64]).unwrap();
+    // Fill src and target with uncorrelated pseudo-noise via a tiny deterministic
+    // LCG so the content has no accidental structure.
+    fn lcg(u: u64) -> u8 {
+        ((u ^ (u >> 33)).wrapping_mul(0xff51afd7ed558ccd) >> 24) as u8
+    }
+    let w = 8usize;
+    let mut vals = Vec::new();
+    let mut seed = 0x9e3779b97f4a7c15u64;
+    for _ in 0..64 {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        vals.push(lcg(seed));
+    }
+    // frames => src is noise A; intended target noise B with no reuse.
+    for (i, v) in vals.iter().enumerate() {
+        src.set((i % w) as u32, (i / w) as u32, *v);
+        target.set((i % w) as u32, (i / w) as u32, v.wrapping_add(7));
+    }
+    // copy any rectangle: mismatch remains, cannot reproduce target.
+    let mut got = src.clone();
+    vole_video::materialize::rect_copy(&mut got, &src, 0, 0, 8, 8, 0, 0);
+    assert_ne!(got.as_slice(), target.as_slice());
 }

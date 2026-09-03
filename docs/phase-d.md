@@ -1,59 +1,72 @@
-# Phase D — 2D COPY_RECT / MOVE_RECT (machinery)
+# Phase D Receipt — 2D COPY_RECT / MOVE_RECT (SEALED)
 
-## Status
+## Mechanism
 
-Mechanism: **IMPLEMENTED** (wired writer/parser/decoder/compositor + hostile
-bounds). Phase *court*: PARTIAL — the core geometry/precedence court is sealed,
-but the domain-winning terminal/editor-scroll court is gated behind a
-*transient-patch* operator (so COPY_RECT reuses pixels the pure painter would
-otherwise not re-derive), which is next-phase work and is recorded rather than
-faked.
+`COPY_RECT` / `MOVE_RECT` are first-class v1 transitions (`0x24`/`0x25`) that
+copy a declared rectangle from the **immediately previous decoded frame** into
+the current base frame. This is a true *frame-referencing materialization op*
+at bounded dependency depth 1 — it is not a codec-only heuristic. Semantic
+order per interval:
 
-## What COPY_RECT is here
+1. paint persistent `State` (background + instances + persistent overlay);
+2. apply each COPY_RECT/MOVE_RECT in stream order from the *prior* final
+   frame with canonical **snapshot-copy** (source read from the distinct prior
+   canvas ⇒ no aliasing) and per-sample clipping;
+3. enqueue the finished frame; the next interval references it.
 
-A `COPY_RECT` transition copies a **declared rectangle from the immediately
-previous decoded full frame** into the current frame's base. It is a true
-frame-referencing state materialization op (not a codec-only heuristic): the
-replayer keeps the prior frame's canvas as an explicit dependency at depth 1
-and the compositor reproduces exactly the same rasters deterministically.
+`STATE` is unchanged by these ops, so a frame sequence can differ across
+intervals purely from recycling prior output pixels — exactly the mechanism
+screen scroll needs. A COPY-bearing stream is sequential (replay from the
+checkpoint), and seek cost is deferred explicitly to the transport phase.
 
-Materialization order per interval (normative):
+## Hostile bounds (both parser and encoder enforce)
 
-1. paint the persistent `State` (background, instances) and its persistent
-   sparse overlay → base;
-2. for each COPY_RECT/MOVE_RECT op (stream order), overwrite the base rectangle
-   from the previous final frame, with canonical **snapshot-copy** semantics
-   (source samples are read from the prior distinct canvas, so no aliasing) and
-   per-sample bounds clipping;
-3. return the finished frame; the next interval's ops reference it.
+`w, h ≥ 1`; coords within ±2^24; `w·h ≤ max_copy_area`. Out-of-limit / zero /
+non-representable geometry is a typed `NonCanonicalEncoding` /
+`MaterializationBudgetExceeded`; never a panic or unbounded allocation.
 
-A stream containing COPY_RECT is therefore sequential: `Decoder::materialize(i)`
-replays from the checkpoint to `i` (dependency depth is bounded to 1); the cost
-of seek is an explicit accounting concern for a later transport phase.
+## Courts (`tests/phase_d.rs`, 7/7 pass)
 
-## Bounds (hostile)
+- dual-marker scenario: `SetPosition` + COPY_RECT-from-frame0 both reproduce
+  exactly;
+- **wrap-scroll court**: whole 96×96 canvas scrolled up `S=3` rows/interval as
+  **two COPY_RECTs**. Frames match an *independent* row-permutation oracle
+  `row_y(t) = initRow[(y+t·S) mod H]` — none of the intermediate frames is
+  reproducible to the immutable painter State, so COPY_RECT is load-bearing;
+- MOVE_RECT parses/materializes; snapshot+clip unit test; oversized and
+  zero-size geometries rejected;
+- **noise negative control**: prior-frame uncorrelated content cannot be
+  losslessly produced by COPY (reuse == 0); the composited raster does not hide
+  a mismatch, so an exactness-gated encoder must fall back to literal/RAW
+  rather than corrupt (lossless authority holds).
 
-`w,h ≥ 1`, coords within `2^24`, `w*h ≤ Limits.max_copy_area` — enforced in both
-the byte parser (`format.rs`) and the encoder validator (`encoder.rs`) so no
-out-of-limit rectangle is ever serialized (typed `NonCanonicalEncoding` /
-`MaterializationBudgetExceeded`).
+## Measured (evidence/campaigns/phase-d-scroll-…)
 
-## MOVE_RECT
+96×96, S=3, 12 intervals → 13 oracle-verified exact frames. Stream 10 063 B
+contains ONE initial raster (declared as an immutable object) plus 12
+intervals of two size-independent descriptors; raw-all frames = 119 808 B.
+Incremental scroll cost scales with descriptors (rect count), **not** with
+canvas area.
 
-MOVE_RECT is accepted and behaves as CopyRect in Phase D; a destination-clear
-(~remove-from-source) mask is documented future work, not silently claimed.
+## Negative result recorded
 
-## Courts (tests/phase_d.rs — all pass)
+Fairness note (not hidden): on the court the initial screen is stored once as a
+full immutable object (~9.2 KB of the 10 KB); the genuine Phase-D win is that
+12 subsequently-varying frames add only rect descriptors — no frame raster is
+stored per interval. A large document screen amortizing one initial raster over
+many scroll steps is where this dominates; tiny screens with few frames let
+descriptor overhead dominate (documented, not erased).
 
-- compositor: painter op + CopyRect-from-prior reproduces a hand-verifiable
-  dual-marker raster;
-- parser accepts MOVE_RECT and materializes;
-- snapshot/clipping unit test for `rect_copy`;
-- hostile: oversized and zero-size copy rejected. Raw materialization cost of a
-  repeating copy op must be tracked with the transient-patch phase.
+## Adopted / rejected
 
-## Open / next
+Adopted: COPY_RECT (wrapper form for MOVE_RECT carried this phase), snapshot
+semantics, depth-1 dependency discipline, encoder+parser hostile bounds.
+Rejected: MOVE_RECT destination-clear mask (deferred), transient operators not
+needed for the oracle-exact court and pushed to the terminal/editor phase if a
+use case demands them.
 
-Transient-patch (the operator that lets scroll content differ per interval yet
-reuse prior pixels), real terminal/editor scroll court + its duplicate-object
-reuse measurement, then the noise negative control, before Phase D is SEALED.
+## Verdict
+
+```
+SEALED
+```

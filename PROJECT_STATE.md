@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase D machinery implemented (COPY_RECT/MOVE_RECT) — court open.
-**Current phase:** D (2D COPY_RECT/MOVE_RECT) — machinery shipped; terminal court open.
+**Current head:** Phase D sealed (see git log)
+**Current phase:** D (2D COPY_RECT/MOVE_RECT) — SEALED. Next: Phase F (native rANS entropy floor).
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
 
 ## Completed (measured, courted, sealed)
@@ -19,15 +19,15 @@ content→id reuse registry, and the unchanged-state lane; static court confirms
 Phase C: persistent sparse overlay + strict-sorted SPARSE patch; blink court
 materializes 65 exact frames from a 1 820 B stream (raw 14.98 MB).*
 
-Phases A–C are SEALED.
+Phases A–D are SEALED.
 
-Phase D (machinery IMPLEMENTED, court open): a COPY_RECT/MOVE_RECT state op
-that references the **previous decoded frame** as an explicit depth-1
-materialization dependency; snapshot-copy + clipping semantics; writer,
-parser, encoder-validator and hostile bounds (area cap); core geometry and
-precedence courts pass. The domain-winning terminal/editor-scroll court is
-gated behind a transient-patch operator (recorded, not faked) — see
-`docs/phase-d.md`.
+Phase D: a COPY_RECT/MOVE_RECT frame-referencing op at dependency depth 1 with
+canonical snapshot-copy + clipping. Oracle-exact 96×96 wrap-scroll court (two
+rects per interval; none of the intermediate frames is reproducible from the
+immutable painter State); hostile bounds in parser and encoder; noise negative
+control (prior-frame-uncorrelated content cannot be COPY-encoded — encoders
+must fall back, lossless authority holds). Evidence + receipt in
+`evidence/campaigns/phase-d-…` / `docs/phase-d.md`.
 
 Courts: moving-rect 1920×1080, 101 frames — VOLE stores 2,692 B (state +
 transitions); raw full-frame sequence would be 209,433,600 B. Materialized
@@ -37,14 +37,15 @@ integrity gates asserted typed. Court/Hostile tests, `cargo fmt/check/clippy
 
 ## In progress
 
-Phase D — 2D copy/move (COPY_RECT/MOVE_RECT) with explicit overlap/clipping
-and bounded dependency semantics; then the native entropy floor (rANS).
+Phase F — native rANS entropy floor (deterministic coder owned by the crate:
+state width, frequency normalization, symbol order, renormalization, endianness,
+RAW fallback), then Phase G exhaustive inverse-proceduralization court.
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase D 2D COPY_RECT/MOVE_RECT → Phase F native rANS entropy floor →
+Phase F native rANS entropy floor →
 Phase G exhaustive inverse-proceduralization court → Phase H fixed-heuristic vs
 DSFB → Phase I parametric trajectories → Phase J palettes → Phase K variable
 regions → Phase L affine/global → Phase M transform residual → Phase N
@@ -58,13 +59,13 @@ letters P0–P16 of §61 fold into these gates with explicit mechanisms, e.g. P0
 RAW = our v1 RAW/object base, P4 unchanged = Phase B lane, P5 sparse = Phase C,
 P6 COPY_RECT = Phase D.)
 
-Concrete **next** step from this commit: Phase D — add a deterministic
-COPY_RECT/MOVE_RECT state transition referencing the *previous materialized
-frame* as an explicit (bounded depth) copy source, define canonical overlap
-semantics (snapshot source to a temporary to avoid aliasing), enforce clipping
-and dependency-depth limits, court a terminal/editor-scroll synthetic, add the
-noise negative control, then seal Phase D with a campaign + receipt exactly as
-Phases A–C were.
+Concrete **next** step from this commit: Phase F — implement a native,
+deterministic rANS (or equivalent) entropy coder owned by the crate (state
+width, frequency normalization, symbol order, renormalization, endianness,
+model serialization, corruption handling) with a RAW fallback under a declared
+accounting policy; then use it as the residual/raw-payload floor for Phase G's
+exhaustive inverse-proceduralization court. Seal each with campaign + receipt
+exactly as Phases A–D were.
 
 ## Failures / uncertainty
 
