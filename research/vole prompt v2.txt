@@ -1,0 +1,3364 @@
+
+
+````markdown
+# VOLE MASTER IMPLEMENTATION BRIEF
+
+## Native-Rust Procedural Video Storage, Transport, Inverse Proceduralization, and Deterministic Materialization Engine
+
+You are implementing **VOLE — Video Object Layer Engine**.
+
+VOLE is NOT primarily a conventional video codec.
+
+VOLE is a **procedural video storage and transport architecture** in which raster frames are not assumed to be the fundamental persistent representation of video.
+
+The central architectural idea is:
+
+\[
+G_{t+1}=\Phi(U,G_t,\Delta_t)
+\]
+
+\[
+\hat F_t=M(U,G_t,V)
+\]
+
+\[
+F_t=\hat F_t\oplus_{\rho}R_t
+\]
+
+where:
+
+- `U` is a versioned deterministic universe of normative algorithms, tables, arithmetic, generators, transforms, and limits;
+- `G_t` is the bounded **Procedural State Graph** at time `t`;
+- `Φ` is a deterministic bounded state-transition operator;
+- `Δ_t` is a compact transition description;
+- `M` is the deterministic materializer;
+- `V` is the requested view: frame, plane, tile, rectangle, scale, or other bounded materialization target;
+- `R_t` is the residual information the procedural state does not reproduce;
+- `⊕ρ` is an explicitly specified residual algebra.
+
+The persistent video is therefore:
+
+```text
+procedural state
++ state evolution
++ immutable reusable objects
++ irreducible residual information
+````
+
+rather than fundamentally:
+
+```text
+compressed raster frame
++ compressed raster frame
++ compressed raster frame
++ ...
+```
+
+Raster samples remain an output representation because displays, image APIs, and conventional media pipelines require them.
+
+They are not required to remain VOLE's primary storage ontology.
+
+The core principle is:
+
+> **Store the deterministic explanation. Encode what the explanation cannot reproduce. Materialize raster samples only when needed.**
+
+This is not a claim that arbitrary video can be reduced to a small equation.
+
+Information theory remains binding.
+
+If a procedural explanation is poor:
+
+$$
+|R|\rightarrow|F|
+$$
+
+and VOLE must gracefully fall back toward ordinary literal, entropy-coded, motion-compensated, or transform-coded representation.
+
+The architecture must never hide this.
+
+---
+
+# 0. SOURCE OF TRUTH
+
+Before writing implementation code, read in full:
+
+```text
+vole_procedural_video_prior_art.md
+```
+
+Also inspect the current source code of:
+
+```text
+https://github.com/infinityabundance/dsfb
+https://github.com/infinityabundance/entropyfs
+```
+
+Use current source, not stale summaries.
+
+The supplied prior-art paper defines the architectural intent.
+
+The implementation and empirical courts determine which mechanisms survive engineering reality.
+
+Do not silently narrow VOLE back into a conventional block codec.
+
+Do not silently expand VOLE into an arbitrary graphics VM.
+
+VOLE is a bounded deterministic procedural video representation.
+
+---
+
+# 1. FUNDAMENTAL ARCHITECTURAL SEPARATION
+
+Maintain these boundaries permanently:
+
+```text
+VOLE
+    normative procedural representation,
+    state-transition semantics,
+    materialization,
+    residual reconstruction,
+    standalone file/stream format
+
+EntropyFS
+    optional representation-aware persistence,
+    content-addressed object sharing,
+    physical storage optimization,
+    snapshots,
+    GC,
+    cross-video sharing
+
+DSFB
+    zero-authority encoder/search intelligence,
+    residual trajectory observation,
+    candidate search allocation,
+    structural regime detection
+```
+
+In equation form:
+
+$$
+\boxed{\text{VOLE}=\text{normative procedural video representation}}
+$$
+
+$$
+\boxed{\text{EntropyFS}=\text{optional persistence substrate}}
+$$
+
+$$
+\boxed{\text{DSFB}=\text{non-normative search intelligence}}
+$$
+
+A standalone `.vole` stream MUST decode:
+
+* without DSFB;
+* without EntropyFS;
+* without ML;
+* without a network;
+* without external codec libraries.
+
+DSFB MUST NOT appear in normative decoding.
+
+EntropyFS MUST NOT be required for ordinary `.vole` playback.
+
+The normative materializer is authoritative.
+
+---
+
+# 2. THIS IS NOT “A BETTER FRAME CODEC” FIRST
+
+Do NOT begin implementation with the mental model:
+
+```text
+Frame
+  -> tiles
+     -> predictor
+        -> residual
+```
+
+and later add procedural state.
+
+That would miss the project.
+
+Begin with:
+
+```text
+Universe
+   ↓
+Procedural State Graph
+   ↓
+Checkpoint / Transition
+   ↓
+Materializer
+   ↓
+View
+   ↓
+Raster output
+```
+
+Residual coding is attached to state where procedural representation fails to reproduce the exact target.
+
+Frames are one possible materialized view.
+
+The state graph is primary.
+
+---
+
+# 3. TWO FIRST-CLASS SOURCE PATHS
+
+VOLE must support two fundamentally different ingestion paths.
+
+## 3.1 Native procedural input
+
+Some content already exists as structured state before rasterization:
+
+```text
+UI hierarchy
+vector animation
+game/simulation state
+procedural graphics
+motion graphics
+dashboards
+CAD visualization
+deterministic scene composition
+```
+
+For these sources:
+
+```text
+source procedural state
+        ↓
+VOLE state
+        ↓
+VOLE transitions
+        ↓
+materializer
+```
+
+Do not unnecessarily rasterize such content and then try to recover the structure.
+
+The API must eventually permit applications to emit VOLE procedural state directly.
+
+## 3.2 Raster-origin input
+
+Camera footage, legacy codecs, screen capture, and arbitrary raster streams must use **inverse proceduralization**.
+
+Conceptually:
+
+```text
+target raster observation
+        ↓
+candidate procedural explanations
+        ↓
+materialize candidate
+        ↓
+compute exact residual
+        ↓
+complete cost court
+        ↓
+best procedural state + residual
+```
+
+This process asks:
+
+> Which bounded deterministic explanation reproduces the greatest amount of the target for the lowest complete representation cost?
+
+This is one of VOLE's central research mechanisms.
+
+---
+
+# 4. CORE LOSSLESS OBJECTIVE
+
+For an admissible hypothesis `H`:
+
+$$
+\hat F_H=M(H)
+$$
+
+and residual:
+
+$$
+R_H=F\ominus_{\rho_H}\hat F_H.
+$$
+
+The conceptual storage objective is:
+
+$$
+H^*
+=
+\arg\min_H
+\left[
+L(H)+L(F\mid H)
+\right].
+$$
+
+For implementation, use actual accounted persisted bytes initially:
+
+$$
+J(H)=
+B_{\mathrm{state}}
++
+B_{\mathrm{transition}}
++
+B_{\mathrm{objects}}
++
+B_{\mathrm{residual}}
++
+B_{\mathrm{models}}
++
+B_{\mathrm{dictionary}}
++
+B_{\mathrm{index}}
++
+B_{\mathrm{integrity}}.
+$$
+
+Later profiles may add:
+
+$$
+J(H)=
+B
++\lambda_eE
++\lambda_dD
++\lambda_mM
++\lambda_iI
++\lambda_hH_d.
+$$
+
+Where:
+
+* `B` = complete persisted/transmitted bytes;
+* `E` = encode work;
+* `D` = materialization work;
+* `M` = memory;
+* `I` = dependency/object-fetch cost;
+* `H_d` = dependency depth.
+
+Do not compare only residual bytes.
+
+Do not compare only descriptor bytes.
+
+Count everything.
+
+---
+
+# 5. LOSSLESS AUTHORITY
+
+For a lossless target:
+
+$$
+F^*=M(U,G,V)\oplus_{\rho}R
+$$
+
+must hold sample-for-sample.
+
+Every candidate that can win the encoder court MUST be validated through the normative materializer.
+
+Conceptual encoder pipeline:
+
+```text
+candidate generator
+       ↓
+candidate state/transition
+       ↓
+normative materializer
+       ↓
+candidate raster
+       ↓
+residual application
+       ↓
+exact comparison with target
+       ↓
+eligible / rejected
+```
+
+The encoder never assumes that its procedural hypothesis is correct.
+
+It proves reconstruction.
+
+RAW remains universally available.
+
+---
+
+# 6. ONE RUST CRATE
+
+Use **one Rust crate**.
+
+Do not create a large workspace of microcrates.
+
+Repository concept:
+
+```text
+vole/
+├── Cargo.toml
+├── Cargo.lock
+├── rust-toolchain.toml
+├── README.md
+├── SPEC.md
+├── SECURITY.md
+├── CONFORMANCE.md
+├── PROJECT_STATE.md
+├── docs/
+│   ├── architecture.md
+│   ├── procedural-state-graph.md
+│   ├── transitions.md
+│   ├── materialization.md
+│   ├── inverse-proceduralization.md
+│   ├── format-v1.md
+│   ├── residuals.md
+│   ├── dsfb-search.md
+│   ├── entropyfs.md
+│   ├── transport.md
+│   ├── empirical-method.md
+│   ├── information-accounting.md
+│   └── adr/
+├── src/
+│   ├── lib.rs
+│   ├── main.rs
+│   ├── error.rs
+│   ├── limits.rs
+│   ├── checked.rs
+│   ├── universe.rs
+│   ├── time.rs
+│   ├── view.rs
+│   ├── pixel.rs
+│   ├── object.rs
+│   ├── state.rs
+│   ├── graph.rs
+│   ├── checkpoint.rs
+│   ├── transition.rs
+│   ├── residual.rs
+│   ├── materialize/
+│   ├── format/
+│   ├── entropy/
+│   ├── combinadic/
+│   ├── transform/
+│   ├── procedural/
+│   ├── encoder/
+│   ├── inverse/
+│   ├── decoder/
+│   ├── dsfb_search/
+│   ├── transport/
+│   ├── store/
+│   ├── metrics/
+│   └── evidence/
+├── tests/
+├── benches/
+├── corpus/
+└── evidence/
+```
+
+This layout is illustrative.
+
+Do not create empty directories merely to look architecturally sophisticated.
+
+---
+
+# 7. NATIVE RUST
+
+The normative implementation must be native Rust.
+
+Do not implement VOLE as:
+
+* FFmpeg wrappers;
+* libavcodec wrappers;
+* x264/x265 wrappers;
+* libaom wrappers;
+* VVC reference-code wrappers;
+* C/C++ codec bindings;
+* external procedural-renderer wrappers.
+
+External codecs may be run only as benchmark baselines.
+
+Prefer:
+
+```rust
+#![forbid(unsafe_code)]
+```
+
+throughout the initial implementation.
+
+Do not introduce unsafe code without a measured necessity and explicit ADR.
+
+---
+
+# 8. THE PROCEDURAL STATE GRAPH
+
+Create the **Procedural State Graph** as a first-class normative data model from Phase A.
+
+A conceptual state:
+
+$$
+G_t=(O,I,T,D,C,R,M)
+$$
+
+where:
+
+```text
+O = immutable object set
+I = object instances
+T = transforms / trajectories / motion state
+D = generator / dynamics state
+C = composition relationships
+R = residual bindings
+M = models / palettes / dictionaries / metadata
+```
+
+The implementation need not literally expose this tuple.
+
+But the architecture must support these concepts without forcing everything into frame-local blocks.
+
+Important distinction:
+
+```text
+immutable object
+    vs
+mutable-by-transition instance state
+```
+
+An object may remain immutable forever.
+
+An instance may change:
+
+```text
+position
+transform
+visibility
+clip
+palette binding
+residual binding
+z-order
+```
+
+through transitions.
+
+---
+
+# 9. OBJECT IDENTITY
+
+Persistent identity is fundamental.
+
+Examples:
+
+```text
+toolbar object
+glyph atlas
+UI panel
+background region
+palette
+texture patch
+dictionary
+procedural field
+residual template
+raster tile
+```
+
+An object does NOT need semantic meaning.
+
+Do not require computer vision labels.
+
+Object identity may be discovered using:
+
+* cryptographic hashes;
+* byte equality;
+* structural equality;
+* deterministic matching;
+* repeated residual economics.
+
+Use BLAKE3 for immutable content identities unless a stronger project-specific requirement is justified.
+
+Define exactly what bytes are hashed.
+
+Local compact IDs may map to full immutable identities.
+
+---
+
+# 10. INITIAL PROCEDURAL STATE TYPES
+
+The initial state model should include enough structure to prove the concept without becoming a graphics engine.
+
+Start with:
+
+```text
+Object
+ObjectInstance
+Region
+Transform2D
+ResidualBinding
+PaletteBinding
+CheckpointState
+```
+
+Phase A can be Gray8 only.
+
+Initial `Transform2D` may support:
+
+```text
+identity
+integer translation
+```
+
+Do not start with arbitrary perspective transforms.
+
+---
+
+# 11. TRANSITION MODEL
+
+Time evolves via:
+
+$$
+G_{t+1}=\Phi(U,G_t,\Delta_t).
+$$
+
+Transitions must be explicit objects in the representation.
+
+Conceptual transition families:
+
+```text
+OBJECT_DECLARE
+OBJECT_RELEASE
+
+INSTANCE_CREATE
+INSTANCE_DELETE
+
+SET_POSITION
+DELTA_POSITION
+SET_TRANSFORM
+
+COPY_RECT
+MOVE_RECT
+FILL_RECT
+PATCH_RECT
+
+SET_PALETTE
+PATCH_PALETTE
+
+SET_RESIDUAL
+PATCH_RESIDUAL
+CLEAR_RESIDUAL
+
+SET_TRAJECTORY
+ADVANCE_TRAJECTORY
+
+SET_GENERATOR
+ADVANCE_GENERATOR
+
+REBASE_REGION
+```
+
+Do NOT implement them all immediately.
+
+The key requirement is that transition infrastructure exists from the first usable format.
+
+---
+
+# 12. NON-TURING-COMPLETE BY DESIGN
+
+VOLE is not an arbitrary scene scripting VM.
+
+Do NOT embed:
+
+```text
+Lua
+JavaScript
+WASM
+Python
+general bytecode
+unbounded loops
+unbounded recursion
+runtime system calls
+```
+
+into normative materialization.
+
+Every operation must be:
+
+* finite;
+* deterministic;
+* resource bounded;
+* statically or dynamically checkable.
+
+Procedural generators must have bounded work.
+
+The stream is hostile input.
+
+---
+
+# 13. FORMAT V1 ONTOLOGY
+
+The standalone stream should conceptually support:
+
+```text
+VOLEStream
+
+  StreamHeader
+
+  UniverseBinding
+
+  ObjectTable
+  ModelTable
+  DictionaryTable
+
+  Segment*
+
+    SegmentHeader
+
+    Checkpoint?
+
+    Event*
+      ObjectPacket
+      TransitionPacket
+      ResidualPacket
+      IntegrityPacket
+
+    Index
+```
+
+Do not freeze this exact serialization before implementation evidence.
+
+But maintain the ontology:
+
+```text
+OBJECT
+CHECKPOINT
+TRANSITION
+RESIDUAL
+INTEGRITY
+```
+
+These five categories should be visible in the design from the beginning.
+
+---
+
+# 14. MANUAL WIRE FORMAT
+
+Do not use generic serialization as the normative format.
+
+No:
+
+```text
+bincode
+postcard
+CBOR
+MessagePack
+serde-derived wire layout
+```
+
+for normative `.vole`.
+
+JSON may be used for receipts/evidence only.
+
+Define:
+
+* magic;
+* format version;
+* endian;
+* canonical integers;
+* canonical varints if used;
+* lengths;
+* object tags;
+* transition tags;
+* packet types;
+* feature bits;
+* unknown-feature behavior;
+* integrity fields;
+* limits profile;
+* offsets/index structures.
+
+Reject non-canonical encoding.
+
+---
+
+# 15. PIXEL MODEL: START GRAY8
+
+Phase A supports only:
+
+```text
+Gray8
+```
+
+one unsigned 8-bit sample per pixel.
+
+Define:
+
+* row order;
+* stride;
+* width;
+* height;
+* canonical packed representation.
+
+Do not pretend YUV/RGB/HDR support exists before it does.
+
+Later expand carefully.
+
+---
+
+# 16. VIEW MODEL
+
+Raster frames are views of state.
+
+Create an explicit `View` abstraction.
+
+Examples eventually include:
+
+```text
+FullFrame
+Tile
+Rect
+Plane
+Scale
+ScanlineRange
+```
+
+Phase A only needs:
+
+```text
+FullFrame
+```
+
+but design it so partial materialization can be added without restructuring the entire decoder.
+
+Canonical raster output for a stream must remain unambiguous.
+
+---
+
+# 17. INITIAL REPRESENTATION FAMILIES
+
+Do NOT begin with twenty codec modes.
+
+The initial procedural state needs only enough mechanisms to test persistent state.
+
+Implement sequentially.
+
+## RAW
+
+```text
+RAW_REF
+```
+
+Universal escape hatch.
+
+## FILL
+
+```text
+FILL
+```
+
+## EXACT_OBJECT_REF
+
+Reuse immutable exact data.
+
+## UNCHANGED
+
+Persistent instance/state remains unchanged across transition interval.
+
+This is conceptually important.
+
+It makes "nothing happened" a first-class cheap temporal representation.
+
+## SPARSE_PATCH
+
+Patch only changed positions.
+
+## COPY_RECT
+
+Explicitly copy a 2D region from a permitted previous/materialized object.
+
+## INTEGER_TRANSLATION
+
+Persistent object/region translated by integer coordinates.
+
+## RANS_RESIDUAL
+
+Ordinary entropy-coded residual floor.
+
+These are sufficient for the first serious procedural experiment.
+
+---
+
+# 18. UNCHANGED IS NOT A ZERO-BYTE MAGIC CLAIM
+
+Persistent unchanged state may reduce repeated representation, but accounting still includes:
+
+* checkpoint state;
+* object declarations;
+* transition timing;
+* indexes;
+* integrity;
+* stream metadata.
+
+The correct claim is not:
+
+> unchanged frames cost zero.
+
+The correct question is:
+
+> What is the amortized representation cost of maintaining unchanged persistent state?
+
+Measure it.
+
+---
+
+# 19. COPY_RECT AS PROCEDURAL STATE TRANSITION
+
+For scrolling content:
+
+Instead of interpreting:
+
+```text
+most pixels changed
+```
+
+VOLE may represent:
+
+```text
+COPY_RECT(
+    source = previous state,
+    src = (0,18,W,H-18),
+    dst = (0,0)
+)
+
+LITERAL/PATCH newly exposed bottom region
+```
+
+This must be implemented as a state/materialization operation, not merely as an encoder optimization hidden inside a conventional frame codec.
+
+Explicitly define:
+
+* source;
+* destination;
+* overlap semantics;
+* clipping;
+* reference availability;
+* dependency depth.
+
+---
+
+# 20. PARAMETRIC DYNAMICS
+
+One of the key procedural goals is to replace repeated parameter updates with compact deterministic trajectories where this is actually cheaper.
+
+Examples:
+
+$$
+x(t)=x_0+vt
+$$
+
+or:
+
+$$
+x(t)=x_0+vt+\frac12at^2.
+$$
+
+Later support bounded fixed-point trajectories such as:
+
+```text
+Constant
+Linear
+Acceleration
+PiecewiseLinear
+BoundedSpline
+```
+
+Do not use floating point normatively.
+
+Every trajectory must define exact evaluation semantics.
+
+A trajectory only wins if:
+
+```text
+trajectory descriptor
++ corrections/residual
+```
+
+is cheaper than ordinary state updates.
+
+---
+
+# 21. PROCEDURAL GENERATORS
+
+Generators are allowed, but only under strict discipline.
+
+Conceptual descriptor:
+
+```text
+Generator {
+    generator_id,
+    seed_or_state,
+    parameters,
+    coordinate,
+    bounded_iterations,
+}
+```
+
+Examples may eventually include simple:
+
+```text
+gradient
+checker
+noise field
+periodic field
+parametric primitive
+```
+
+Do NOT claim:
+
+```text
+water can be recreated from seed
+smoke can be recreated from seed
+natural textures are free
+```
+
+unless the exact target is actually reproduced economically.
+
+For lossless video:
+
+$$
+M(generator)+R=F.
+$$
+
+If the residual is huge, generator loses.
+
+---
+
+# 22. DO NOT CALL THE RESIDUAL “FAILURE”
+
+The residual is a first-class information object.
+
+It describes what the current procedural explanation did not account for.
+
+Its:
+
+```text
+size
+entropy
+support
+spatial distribution
+temporal evolution
+sign structure
+magnitude
+```
+
+may all provide encoder evidence.
+
+The architecture should preserve diagnostics describing residual behavior.
+
+But the decoder needs only the actual normative residual representation.
+
+---
+
+# 23. DSFB'S NEW ROLE
+
+The improved architecture changes DSFB's role.
+
+DSFB is not merely:
+
+> which codec mode should I test?
+
+It observes **procedural hypothesis persistence**.
+
+Candidate families may include:
+
+```text
+UNCHANGED
+EXACT_OBJECT
+TRANSLATION
+AFFINE
+SPARSE_CHANGE
+COPY_RECT
+PALETTE
+PARAMETRIC_TRAJECTORY
+GENERATOR
+TRANSFORM
+RAW
+```
+
+The encoder measures how well each explanation works.
+
+DSFB observes those measurements through time.
+
+---
+
+# 24. DSFB SEMANTICS
+
+A useful interpretation:
+
+```text
+φ = current explanatory quality of procedural hypothesis
+ω = gradual drift of that explanatory quality
+α = rapid structural regime change
+```
+
+Example:
+
+```text
+region follows translation for 500 intervals
+residual remains tiny
+
+then object deforms
+residual rises sharply
+```
+
+High slew may trigger:
+
+```text
+broaden candidate search
+test affine
+test split regions
+test sparse mutation
+test rebase
+test transform fallback
+```
+
+After another family stabilizes, search narrows again.
+
+This is a major research mechanism.
+
+---
+
+# 25. LOCAL PROCEDURAL REBASE
+
+Do NOT force global frame resets because one region changes.
+
+Support conceptually:
+
+```text
+REBASE_REGION
+```
+
+A local state can discard an obsolete procedural explanation and establish a new basis while unrelated state remains intact.
+
+Measure:
+
+* rebase frequency;
+* bytes caused by rebase;
+* candidate work;
+* recovery latency;
+* residual reduction after rebase.
+
+---
+
+# 26. DSFB ZERO AUTHORITY
+
+DSFB may:
+
+* rank procedural hypotheses;
+* change search order;
+* change candidate budget;
+* select expensive families to test;
+* recommend region rebase;
+* adjust motion/affine search depth;
+* schedule background optimization.
+
+DSFB may NOT:
+
+* alter samples;
+* alter normative state semantics;
+* make invalid reconstruction acceptable;
+* suppress RAW permanently;
+* select an unvalidated candidate;
+* override exact final cost among evaluated candidates;
+* be required to decode.
+
+---
+
+# 27. DETERMINISTIC SENTINELS
+
+Prevent search starvation.
+
+Always test:
+
+```text
+RAW
+incumbent representation
+one cheap universal alternative
+```
+
+Then:
+
+```text
+top N DSFB trusted hypotheses
++ rotating sentinel hypothesis
+```
+
+If slew rises above threshold:
+
+```text
+broaden search substantially
+```
+
+No stochastic bandits.
+
+No random epsilon-greedy exploration.
+
+---
+
+# 28. SEARCH STRATEGIES
+
+Implement three strategies over the same candidate universe:
+
+```text
+Exhaustive
+FixedHeuristic
+DsfbGuided
+```
+
+The exhaustive strategy is the search-quality oracle.
+
+For every decision record:
+
+```text
+candidates_available
+candidates_evaluated
+winner
+oracle_winner
+winner_bytes
+oracle_bytes
+regret
+search_work
+residual_bytes
+procedural_bytes
+state family
+DSFB diagnostics
+```
+
+Primary DSFB success criterion:
+
+$$
+N_{\mathrm{DSFB}}<N_{\mathrm{exhaustive}}
+$$
+
+while ideally:
+
+$$
+J_{\mathrm{DSFB}}=J_{\mathrm{exhaustive}}.
+$$
+
+---
+
+# 29. INVERSE PROCEDURALIZATION ENGINE
+
+This deserves its own architecture.
+
+Conceptually:
+
+```text
+ObservedRegion
+    ↓
+CandidateDiscovery
+    ↓
+CandidateProceduralState
+    ↓
+NormativeMaterialization
+    ↓
+ResidualConstruction
+    ↓
+CompleteCost
+    ↓
+CandidateValidation
+    ↓
+Winner
+```
+
+Candidate discovery must remain separate from materialization authority.
+
+A candidate generator should produce a declarative candidate.
+
+The normative materializer proves what that candidate means.
+
+---
+
+# 30. CANDIDATE FAMILIES
+
+Over time, inverse proceduralization may investigate:
+
+```text
+raw
+fill
+unchanged
+exact object
+same region previous state
+translation
+motion field
+affine/global motion
+sparse mutation
+copy/move region
+palette
+dictionary
+parametric trajectory
+procedural generator
+transform-coded residual
+```
+
+Do not implement everything before running courts.
+
+Every new candidate family must earn complexity.
+
+---
+
+# 31. COMPLETE PHYSICAL ACCOUNTING
+
+Define a strongly typed accounting structure.
+
+Conceptually:
+
+```rust
+struct RepresentationCost {
+    state_bytes: u64,
+    transition_bytes: u64,
+    object_bytes: u64,
+    residual_bytes: u64,
+    checkpoint_bytes: u64,
+    model_bytes: u64,
+    dictionary_bytes: u64,
+    index_bytes: u64,
+    integrity_bytes: u64,
+    other_bytes: u64,
+}
+```
+
+All totals use checked arithmetic.
+
+For shared objects, report:
+
+```text
+actual store-level physical cost
+and
+declared per-stream attribution
+```
+
+separately.
+
+Do not count shared state as zero.
+
+---
+
+# 32. PROCEDURAL FRACTION METRICS
+
+It is useful to measure how much stream cost belongs to procedural description versus residual/raster fallback.
+
+Do NOT call this “entropy eliminated.”
+
+A possible operational metric:
+
+$$
+P_{\mathrm{proc}}
+=
+1-
+\frac{
+B_{\mathrm{residual}}
++
+B_{\mathrm{raw}}
+}{
+B_{\mathrm{total}}
+}.
+$$
+
+Clearly label this as an engineering accounting metric, not Shannon entropy.
+
+Also report the raw components.
+
+---
+
+# 33. STRUCTURAL INNOVATION RATE
+
+One of the most important VOLE streaming hypotheses is:
+
+> On suitable content, bandwidth should respond to structural innovation rather than mechanically to raster resolution × frame rate.
+
+Create controlled tests.
+
+Example:
+
+```text
+10 seconds static scene
+1 object moves
+10 seconds static
+palette changes
+5 seconds static
+new object appears
+```
+
+Measure bytes over time.
+
+Plot or report:
+
+```text
+bytes / interval
+structural transitions / interval
+residual bytes / interval
+```
+
+Do not claim a universal proportional relationship.
+
+Measure it.
+
+---
+
+# 34. PROCEDURAL STREAMING
+
+Design transport around:
+
+```text
+OBJECT
+CHECKPOINT
+TRANSITION
+RESIDUAL
+INTEGRITY
+```
+
+A receiver maintains state.
+
+Conceptual sequence:
+
+```text
+OBJECT background
+OBJECT sprite
+
+CHECKPOINT t=0
+
+TRANSITION t=1
+  sprite.x += 2
+
+TRANSITION t=2
+  sprite.x += 2
+
+RESIDUAL region 18
+
+TRANSITION t=3
+  ...
+```
+
+This is fundamentally different from sending an independent compressed raster frame at every time interval.
+
+---
+
+# 35. CHECKPOINTS
+
+Persistent state requires restart points.
+
+A checkpoint must define sufficient bounded state to resume decoding.
+
+Measure the trade-off between:
+
+```text
+checkpoint frequency
+stream density
+seek latency
+error propagation
+memory
+```
+
+Do not claim random access is O(1) merely because a checkpoint can be indexed.
+
+Report:
+
+```text
+descriptor lookup
+checkpoint fetch
+transition replay count
+dependency fetches
+materialization time
+```
+
+---
+
+# 36. REFERENCE DEPTH
+
+All state/object dependencies must have explicit limits.
+
+A decoder must never traverse an unbounded graph.
+
+Implement:
+
+```text
+max_dependency_depth
+max_transition_replay
+max_checkpoint_distance
+max_objects_per_state
+```
+
+and other appropriate limits.
+
+---
+
+# 37. PARTIAL MATERIALIZATION
+
+The architecture should eventually permit:
+
+```text
+materialize frame
+materialize tile
+materialize rectangle
+materialize scanline range
+```
+
+Do not implement all in Phase A.
+
+But avoid designs that make partial materialization impossible.
+
+The empirical question is whether this can reduce:
+
+```text
+latency
+memory
+memory bandwidth
+unnecessary decode work
+```
+
+for:
+
+```text
+remote display
+video editing
+viewport playback
+large scientific images
+display scanout
+```
+
+---
+
+# 38. RESOLUTION-INDEPENDENT PROCEDURAL STATE
+
+Some state may not be tied to one raster resolution.
+
+Examples:
+
+```text
+rectangle geometry
+vector path
+transform
+palette
+generator
+trajectory
+composition
+```
+
+Raster residuals normally remain tied to a sampling grid.
+
+Therefore support the conceptual distinction:
+
+```text
+procedural state
+    potentially view/resolution independent
+
+raster residual
+    resolution/sample-grid bound
+```
+
+Never imply that low-resolution residual information contains missing high-resolution detail.
+
+---
+
+# 39. DIRECT PROCEDURAL INGEST
+
+This is essential to the improved goal.
+
+Eventually expose an API allowing a source engine to provide:
+
+```text
+objects
+instances
+transforms
+transitions
+palettes
+procedural parameters
+timing
+```
+
+directly.
+
+Example conceptual API:
+
+```rust
+encoder.declare_object(...);
+encoder.create_instance(...);
+encoder.set_position(...);
+encoder.advance_time(...);
+encoder.emit_checkpoint(...);
+```
+
+The source can thereby avoid:
+
+```text
+render to raster
+→ capture raster
+→ infer the structure we just destroyed
+```
+
+This may be one of VOLE's strongest use cases.
+
+---
+
+# 40. RASTER INGEST REMAINS UNIVERSAL
+
+VOLE must still encode arbitrary raster input.
+
+If proceduralization fails:
+
+```text
+transform/rANS/raw
+```
+
+must remain available.
+
+VOLE is not allowed to become useful only for authored procedural content.
+
+---
+
+# 41. RANS / ENTROPY FLOOR
+
+Implement a native deterministic entropy coder after the initial state architecture works.
+
+rANS is appropriate.
+
+VOLE owns its normative:
+
+```text
+state width
+frequency normalization
+symbol order
+renormalization
+endianness
+stream termination
+model serialization
+corruption handling
+```
+
+Do not delegate wire-format semantics to a dependency whose behavior may change.
+
+Use RAW when:
+
+```text
+model + encoded payload >= raw payload
+```
+
+under the declared accounting policy.
+
+---
+
+# 42. CONTEXTUAL ENTROPY CODING
+
+Non-ML does NOT mean non-adaptive.
+
+Potential contexts:
+
+### transition streams
+
+```text
+previous transition class
+object class
+region class
+```
+
+### residual support
+
+```text
+neighbor activity
+previous activity
+density
+```
+
+### motion
+
+```text
+neighbor vector
+magnitude
+reference
+```
+
+### procedural parameter deltas
+
+```text
+parameter type
+previous delta
+trajectory family
+```
+
+### copy commands
+
+```text
+previous command
+length class
+distance class
+```
+
+Every context remains explicit and deterministic.
+
+---
+
+# 43. PROCEDURAL TRAJECTORY COLLAPSE
+
+Background optimization should look for repeated transitions such as:
+
+```text
+x += 2
+x += 2
+x += 2
+x += 2
+...
+```
+
+and potentially replace them with:
+
+```text
+LINEAR_TRAJECTORY(
+    start = x0,
+    velocity = 2,
+    duration = N
+)
+```
+
+if materialization remains exact and complete cost falls.
+
+This is a perfect example of representation re-optimization.
+
+---
+
+# 44. EQUIVALENCE-PRESERVING RE-OPTIMIZATION
+
+For old representation `D0` and replacement `D1`:
+
+$$
+M(D_0)=M(D_1)
+$$
+
+must be established.
+
+Then only if:
+
+$$
+J(D_1)<J(D_0)
+$$
+
+may representation replacement occur.
+
+Potential discoveries:
+
+```text
+trajectory instead of repeated deltas
+shared object instead of repeated literals
+affine state instead of many translations
+copy region instead of sparse patches
+shared dictionary
+better checkpoint placement
+better residual model
+reduced dependency depth
+procedural generator + small residual
+```
+
+Output reconstruction hash must remain identical.
+
+---
+
+# 45. ENTROPYFS INTEGRATION
+
+Do this only after standalone VOLE works.
+
+Provide a store abstraction:
+
+```rust
+trait ObjectStore {
+    fn get(...);
+    fn put(...);
+    fn contains(...);
+}
+```
+
+Implement conceptually:
+
+```text
+EmbeddedStore
+EntropyFsStore
+```
+
+The materializer must not know whether an object came from:
+
+```text
+the .vole file
+EntropyFS
+memory cache
+```
+
+except through the storage abstraction.
+
+Do not leak filesystem transactions into normative video semantics.
+
+---
+
+# 46. CROSS-VIDEO PROCEDURAL OBJECT SHARING
+
+EntropyFS integration can investigate reuse of:
+
+```text
+visual objects
+palettes
+dictionaries
+models
+checkpoints
+generator state
+raster assets
+residual templates
+```
+
+across videos.
+
+Sharing requires exact immutable identity.
+
+Do not infer sameness from appearance alone.
+
+A transformed object must persist:
+
+```text
+base object
++ transformation
++ residual
+```
+
+if exact identity does not hold.
+
+---
+
+# 47. NON-DESTRUCTIVE EDITING
+
+The state graph naturally permits edit branches.
+
+Conceptual edit operations:
+
+```text
+TRIM
+CONCAT
+TIME_MAP
+OBJECT_REPLACE
+OVERLAY
+TRANSFORM
+CROP
+BRANCH
+```
+
+Separate:
+
+```text
+representation optimization
+content editing
+lossy encoding
+```
+
+These are different operations.
+
+Do not call every descriptor-level edit “lossless.”
+
+---
+
+# 48. SECURITY LIMITS
+
+Create one central `Limits` type.
+
+Bound at minimum:
+
+```text
+max_width
+max_height
+max_frame_bytes
+max_objects
+max_object_bytes
+max_instances
+max_state_bytes
+max_checkpoint_bytes
+max_transitions
+max_transitions_per_interval
+max_transition_replay
+max_dependency_depth
+max_residual_bytes
+max_dictionary_bytes
+max_model_bytes
+max_palette_entries
+max_copy_area
+max_generator_state
+max_generator_work
+max_trajectory_segments
+max_rank_bits
+max_working_memory
+```
+
+No untrusted length directly controls allocation without validation.
+
+---
+
+# 49. HOSTILE STREAM TESTING
+
+Required cases include:
+
+```text
+truncated packet
+invalid object ID
+duplicate conflicting object ID
+reference cycle
+self-reference
+excessive dependency depth
+huge declared dimensions
+integer overflow
+out-of-bounds COPY_RECT
+invalid overlap
+invalid transition target
+transition before object creation
+delete nonexistent instance
+generator budget overflow
+rank outside combinatorial space
+entropy overread
+entropy underflow
+residual expansion bomb
+invalid checkpoint
+unknown mandatory feature
+noncanonical varint
+```
+
+Outcome:
+
+```text
+valid bounded decode
+or
+typed deterministic error
+```
+
+Never:
+
+```text
+panic
+OOM
+hang
+stack overflow
+memory corruption
+```
+
+---
+
+# 50. DETERMINISTIC ARITHMETIC
+
+Normative materialization defines:
+
+```text
+integer widths
+fixed-point formats
+endianness
+rounding
+overflow
+saturation
+modular behavior
+transform order
+trajectory evaluation
+coordinate conversion
+rasterization
+palette ordering
+hash canonicalization
+entropy normalization
+```
+
+No normative floating point initially.
+
+DSFB may internally use float because it is non-normative, but decoder output cannot depend on it.
+
+---
+
+# 51. PUBLIC API
+
+Design around the actual procedural architecture.
+
+Conceptually:
+
+```rust
+pub struct Decoder { ... }
+pub struct Encoder { ... }
+
+pub struct ProceduralState { ... }
+pub struct Checkpoint { ... }
+pub struct Transition { ... }
+
+pub struct ObjectId { ... }
+pub struct Object { ... }
+pub struct InstanceId { ... }
+
+pub struct View { ... }
+pub struct Frame { ... }
+
+pub struct Limits { ... }
+
+pub enum PixelFormat {
+    Gray8,
+}
+
+pub enum EncoderStrategy {
+    Exhaustive,
+    FixedHeuristic,
+    DsfbGuided,
+}
+```
+
+Later provide:
+
+```rust
+pub struct ProceduralEncoder
+pub struct RasterEncoder
+```
+
+or equivalent clean API distinction.
+
+Do not expose DSFB internal structures through the basic decoder interface.
+
+---
+
+# 52. CLI
+
+One binary:
+
+```text
+vole
+```
+
+Commands should eventually include:
+
+```text
+vole encode
+vole decode
+vole inspect
+vole verify
+vole optimize
+vole court
+vole bench
+vole state
+```
+
+Possible usage:
+
+```bash
+vole encode \
+  --input-format gray8 \
+  --width 1920 \
+  --height 1080 \
+  input.raw \
+  output.vole
+
+vole decode output.vole decoded.raw
+
+vole inspect output.vole
+
+vole state --time 10.0 output.vole
+
+vole verify output.vole
+
+vole optimize input.vole optimized.vole
+```
+
+Human-readable output is not enough.
+
+Provide versioned JSON report mode.
+
+---
+
+# 53. NATIVE PROCEDURAL TEST FORMAT
+
+Before integrating a game engine or UI framework, create a simple deterministic procedural test input format used only by the research harness.
+
+Example:
+
+```text
+canvas 1920 1080
+
+object 1 fill_rect 200 100 value=180
+instance 1 object=1 x=0 y=0
+
+at 0:
+  checkpoint
+
+at 1:
+  move instance=1 dx=2 dy=0
+
+at 2:
+  move instance=1 dx=2 dy=0
+```
+
+This is test input, NOT necessarily normative VOLE syntax.
+
+Use it to compare:
+
+```text
+direct procedural ingest
+vs
+rasterize then inverse-proceduralize
+```
+
+---
+
+# 54. INITIAL SYNTHETIC COURPUS
+
+Generate deterministic sequences:
+
+```text
+static fill
+moving rectangle
+two persistent objects
+scrolling bars
+terminal-like scroll
+sparse blinking pixels
+palette cycling
+constant-velocity object
+constant-acceleration object
+piecewise motion
+object appearing/disappearing
+large exact copied region
+camera-like translation
+noise
+```
+
+Use fixed deterministic seeds.
+
+---
+
+# 55. NATIVE-PROCEDURAL PRESERVATION COURT
+
+This is a critical experiment.
+
+Start from known procedural state.
+
+Generate the same canonical raster sequence.
+
+Then compare:
+
+### A
+
+```text
+original procedural state
+→ VOLE direct ingest
+```
+
+### B
+
+```text
+original procedural state
+→ rasterize
+→ VOLE inverse proceduralization
+```
+
+### C
+
+```text
+original procedural state
+→ rasterize
+→ conventional codec baseline
+```
+
+Measure:
+
+```text
+bytes
+encode work
+decode/materialize work
+lost structural information
+checkpoint overhead
+residual fraction
+```
+
+This directly measures the cost of flattening structured media into rasters.
+
+---
+
+# 56. RASTER INVERSE-PROCEDURALIZATION COURT
+
+Test:
+
+```text
+desktop
+terminal
+browser
+game UI
+animation
+surveillance
+scientific imagery
+talking head
+natural video
+sports
+pan
+zoom
+rotation
+grain/noise
+random
+```
+
+VOLE must discover where proceduralization works and where it does not.
+
+---
+
+# 57. EXTERNAL CODEC BASELINES
+
+Benchmark harness may invoke:
+
+```text
+FFV1
+H.264 lossless
+HEVC lossless
+AV1 lossless
+AV2 if tooling supports it
+VVC reference configuration
+screen-content codec configurations
+```
+
+Record:
+
+```text
+tool version
+exact command
+input hash
+pixel format
+output bytes
+encode time
+decode time
+environment
+```
+
+No benchmark result without a receipt.
+
+---
+
+# 58. PROCEDURAL PRIOR-ART BASELINES
+
+Where useful for authored content, also compare conceptually against:
+
+```text
+SVG/SMIL
+Lottie
+scene description
+direct source state size
+drawing-order trace
+```
+
+These are not necessarily video codecs.
+
+They measure the economics of keeping procedural state versus flattening it.
+
+---
+
+# 59. KEY METRICS
+
+Every serious campaign should record:
+
+```text
+source raster bytes
+source procedural state bytes where known
+
+VOLE total bytes
+
+object bytes
+checkpoint bytes
+transition bytes
+residual bytes
+raw fallback bytes
+entropy model bytes
+dictionary bytes
+integrity bytes
+index bytes
+
+procedural fraction
+residual fraction
+
+encode CPU
+materialize CPU
+decode CPU
+peak memory
+
+candidate evaluations
+oracle regret
+DSFB reduction
+DSFB rebase events
+
+objects reused
+object cache hit rate
+
+checkpoint distance
+dependency depth
+transition replay length
+
+full-frame latency
+tile latency
+seek latency
+
+bytes over time
+structural events over time
+```
+
+---
+
+# 60. EMPIRICAL STATUS LEDGER
+
+Maintain:
+
+```text
+docs/empirical-status.md
+```
+
+Mechanisms have explicit states:
+
+```text
+PROPOSED
+IMPLEMENTED
+COURT-PENDING
+ADOPTED
+RECORDED
+REJECTED
+```
+
+Examples:
+
+```text
+persistent objects
+unchanged state
+COPY_RECT
+translation
+trajectory collapse
+palette
+affine
+generator
+DSFB
+EntropyFS sharing
+partial materialization
+```
+
+Never erase negative results.
+
+---
+
+# 61. ABLATION LADDER
+
+Use cumulative builds:
+
+```text
+P0   RAW
+
+P1   + FILL
+
+P2   + persistent objects
+
+P3   + checkpoints/transitions
+
+P4   + unchanged persistent state
+
+P5   + sparse patch
+
+P6   + COPY_RECT
+
+P7   + integer translation
+
+P8   + contextual entropy
+
+P9   + DSFB search governor
+
+P10  + palettes
+
+P11  + parametric trajectories
+
+P12  + affine/global transforms
+
+P13  + transform residual
+
+P14  + procedural generators
+
+P15  + shared dictionaries
+
+P16  + EntropyFS cross-video persistence
+```
+
+Also perform leave-one-out experiments.
+
+---
+
+# 62. NEGATIVE CONTROLS
+
+Mandatory:
+
+```text
+random raster video
+rapidly changing noise
+content with no repeated objects
+content with no useful motion
+content intentionally hostile to palette
+generator candidate known to be wrong
+trajectory candidate known not to fit
+DSFB-disabled exhaustive
+fixed heuristic
+ordinary raster/entropy floor
+```
+
+Random/noise results should converge toward raster fallback with bounded overhead.
+
+---
+
+# 63. FAILURE CRITERIA
+
+A mechanism loses when competent implementation demonstrates that:
+
+```text
+metadata dominates savings
+residual dominates the procedural state
+search cost is excessive
+decode is slower without compensating benefit
+cache locality destroys object reuse benefit
+checkpoint overhead destroys transition benefit
+generator parameters merely relocate information
+DSFB fails to outperform simple heuristic
+trajectory encoding rarely pays
+COPY_RECT loses to ordinary screen coding
+cross-video reuse is negligible
+partial materialization has no practical advantage
+```
+
+Reject or record it.
+
+Do not preserve a favorite hypothesis because it sounds elegant.
+
+---
+
+# 64. PHASE PLAN
+
+Execute sequentially.
+
+A phase is not complete because code exists.
+
+A phase ends with:
+
+```text
+cargo fmt --check
+cargo check --all-targets
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
+release tests
+malformed-input tests
+phase court
+evidence receipt
+docs updated
+```
+
+---
+
+# PHASE A — PROCEDURAL CORE, NOT CODEC CORE
+
+Implement:
+
+```text
+one Rust crate
+Gray8
+manual .vole parser/writer
+Universe v1
+ObjectId/Object
+ObjectInstance
+ProceduralState
+Checkpoint
+Transition
+FullFrame View
+RAW
+FILL
+OBJECT_DECLARE
+INSTANCE_CREATE
+SET_POSITION
+checkpoint restore
+state transition replay
+full-frame materialization
+integrity hash
+Limits
+typed errors
+```
+
+The first meaningful stream must be able to represent:
+
+```text
+declare rectangle object
+instantiate it
+checkpoint
+move it over several intervals
+materialize frames
+```
+
+without storing each raster frame independently.
+
+Acceptance:
+
+```text
+procedural source
+→ VOLE state
+→ materialized frames
+```
+
+must match reference rasterization exactly.
+
+Hostile streams never panic.
+
+This phase proves the ontology.
+
+---
+
+# PHASE B — PERSISTENT OBJECT IDENTITY
+
+Implement:
+
+```text
+content addressing
+exact immutable objects
+object reuse
+UNCHANGED
+object lifetime
+instance lifetime
+reference validation
+```
+
+Court:
+
+```text
+static scenes
+persistent UI
+repeated objects
+negative random objects
+```
+
+Measure amortized unchanged-state cost.
+
+---
+
+# PHASE C — SPARSE MUTATION
+
+Implement:
+
+```text
+SPARSE_PATCH
+sorted positions
+raw changed values
+rANS changed values when beneficial
+```
+
+Court:
+
+```text
+blinking pixels
+small text changes
+static surveillance synthetic
+noise
+```
+
+---
+
+# PHASE D — 2D COPY/MOVE
+
+Implement:
+
+```text
+COPY_RECT
+MOVE_RECT if semantically useful
+explicit overlap
+bounds
+```
+
+Court:
+
+```text
+terminal scroll
+editor scroll
+browser scroll
+2D game map movement
+negative camera/noise
+```
+
+---
+
+# PHASE E — INTEGER TRANSLATION
+
+Implement persistent translated object/region state.
+
+Not merely codec-local block motion.
+
+Example:
+
+```text
+Instance 7:
+    object = 42
+    position(t+1) = position(t) + (2,0)
+```
+
+Residual may correct mismatches.
+
+Court:
+
+```text
+moving objects
+camera translation
+static control
+noise
+```
+
+---
+
+# PHASE F — NORMATIVE ENTROPY FLOOR
+
+Implement native Rust rANS.
+
+Use it for:
+
+```text
+raw raster payload
+residual values
+transition parameters where beneficial
+```
+
+Complete cost includes model state.
+
+---
+
+# PHASE G — EXHAUSTIVE INVERSE PROCEDURALIZATION
+
+Build a raster encoder that tests:
+
+```text
+RAW
+FILL
+UNCHANGED
+EXACT_REF
+SPARSE
+COPY_RECT
+TRANSLATION
+RANS_RESIDUAL
+```
+
+Every candidate:
+
+```text
+materializes
+receives exact residual
+validates target
+enters cost court
+```
+
+This is the first true inverse proceduralizer.
+
+---
+
+# PHASE H — FIXED HEURISTIC VS DSFB
+
+Implement:
+
+```text
+Exhaustive
+FixedHeuristic
+DsfbGuided
+```
+
+same candidate universe.
+
+Measure:
+
+```text
+candidate count
+CPU
+final bytes
+oracle regret
+adaptation after regime change
+```
+
+Implement local rebase.
+
+---
+
+# PHASE I — PARAMETRIC TRAJECTORIES
+
+Implement bounded:
+
+```text
+constant
+linear
+acceleration
+piecewise linear
+```
+
+fixed-point/integer trajectories.
+
+Allow:
+
+```text
+many repeated SET_POSITION transitions
+```
+
+to collapse into one trajectory only if reconstruction remains exact.
+
+This is a core procedural-video test.
+
+---
+
+# PHASE J — PALETTE STATE
+
+Implement:
+
+```text
+palette object
+palette-index object
+palette mutation
+```
+
+Measure particularly on screen/UI/animation.
+
+---
+
+# PHASE K — VARIABLE REGIONS
+
+Only after state semantics are stable.
+
+Support:
+
+```text
+64x64
+32x32
+16x16
+8x8
+rectangular regions
+```
+
+Avoid uncontrolled partition explosion.
+
+DSFB may govern search.
+
+---
+
+# PHASE L — AFFINE / GLOBAL STATE
+
+Implement bounded fixed-point affine transformations.
+
+Test:
+
+```text
+pan
+zoom
+rotation
+camera-like transforms
+```
+
+Residual closes exactness gap.
+
+---
+
+# PHASE M — TRANSFORM RESIDUAL FLOOR
+
+Add deterministic integer transform coding.
+
+This allows VOLE to behave increasingly like a conventional codec where procedural state does not explain natural texture economically.
+
+Do not resist this.
+
+The strongest VOLE is the one that lets conventional coding win where appropriate.
+
+---
+
+# PHASE N — PROCEDURAL GENERATORS
+
+Introduce only a small finite generator family.
+
+Examples:
+
+```text
+gradient
+checker
+simple periodic field
+bounded deterministic noise
+```
+
+Every candidate must carry exact residual correction.
+
+Run strong negative controls.
+
+---
+
+# PHASE O — REPRESENTATION RE-OPTIMIZATION
+
+Implement:
+
+```text
+vole optimize
+```
+
+Search for:
+
+```text
+trajectory collapse
+better object reuse
+better copy decomposition
+better checkpoints
+affine replacement
+better entropy model
+lower-depth state graph
+generator substitution
+```
+
+Invariant:
+
+```text
+decoded_before_hash == decoded_after_hash
+```
+
+---
+
+# PHASE P — ENTROPYFS PERSISTENCE
+
+Inspect current EntropyFS API.
+
+Implement optional store adapter.
+
+Test:
+
+```text
+cross-stream exact object sharing
+shared palettes
+shared dictionaries
+shared model state
+GC closure
+physical accounting
+```
+
+Standalone VOLE remains unchanged.
+
+---
+
+# PHASE Q — NATIVE PROCEDURAL INGEST
+
+Expose a stable API for applications that already possess procedural state.
+
+Create a reference synthetic source.
+
+Compare:
+
+```text
+direct procedural ingest
+vs
+rasterize + inverse proceduralize
+```
+
+This court is central to the project thesis.
+
+---
+
+# PHASE R — PROCEDURAL TRANSPORT
+
+Implement packetized streaming:
+
+```text
+OBJECT
+CHECKPOINT
+TRANSITION
+RESIDUAL
+INTEGRITY
+```
+
+Add:
+
+```text
+restart
+packet loss tests
+missing object behavior
+checkpoint recovery
+bounded state replay
+```
+
+Measure bytes over time against structural changes.
+
+---
+
+# PHASE S — PARTIAL MATERIALIZATION
+
+Implement:
+
+```text
+Rect
+Tile
+```
+
+views.
+
+Measure:
+
+```text
+memory
+CPU
+latency
+object fetches
+```
+
+against whole-frame decoding.
+
+---
+
+# PHASE T — ARCHIVE PROFILE
+
+Add:
+
+```text
+strong integrity
+frame/state hashes
+object hashes
+corruption localization
+self-description
+bounded replay
+long-term universe versioning
+```
+
+Compare operationally against FFV1.
+
+Do not overclaim compression.
+
+---
+
+# PHASE U — PERCEPTUAL PROFILE
+
+LAST.
+
+Define chosen reconstruction:
+
+$$
+\hat F.
+$$
+
+The decoder reproduces \(\hat F\) deterministically.
+
+Only then add:
+
+```text
+quantization
+rate-distortion
+filters
+perceptual transforms
+residual dropping
+```
+
+Keep exact profiles intact.
+
+---
+
+# 65. HARDWARE COMES AFTER THE SOFTWARE COURT
+
+Do not start FPGA/EPU work before measuring operation distributions.
+
+Collect:
+
+```text
+object fetches
+copy volume
+transition count
+residual entropy decode
+trajectory evaluations
+motion operations
+affine operations
+transform operations
+hashing
+palette lookup
+sparse scatter
+```
+
+Only then design SIMD/GPU/FPGA/ASIC acceleration.
+
+No guessed:
+
+```text
+watts
+4K60
+8K120
+clock speed
+lane count
+FPGA utilization
+```
+
+as measured claims.
+
+---
+
+# 66. DIRECT SCANOUT IS A HYPOTHESIS
+
+A future materializer may potentially:
+
+```text
+state
+→ materialize next output band
+→ display
+```
+
+without a conventional full-frame decoded buffer.
+
+But do not architect the initial decoder around an unproven display pipeline.
+
+First implement correct partial materialization.
+
+Then benchmark.
+
+---
+
+# 67. FORMAT COMPATIBILITY
+
+Once format v1 is frozen:
+
+```text
+old golden streams
+```
+
+must decode forever according to v1 semantics.
+
+Maintain:
+
+```text
+stream hash
+expected reconstruction hash
+frame hashes
+checkpoint hashes
+```
+
+for conformance.
+
+Unknown mandatory features fail closed.
+
+---
+
+# 68. PROPERTY TESTS
+
+High-value properties include:
+
+```text
+decode(encode(X)) == X
+
+materialize(checkpoint + transitions) == reference raster
+
+parse(serialize(state)) == canonical state
+
+optimize(D0) materializes exactly same output
+
+rank(unrank(x)) == x
+
+unrank(rank(S)) == S
+
+rans_decode(rans_encode(X)) == X
+```
+
+For direct procedural ingest:
+
+```text
+reference_renderer(state)
+==
+VOLE_materializer(VOLE_encode(state))
+```
+
+---
+
+# 69. EVIDENCE CAMPAIGNS
+
+Every empirical run creates:
+
+```text
+evidence/campaigns/
+  TIMESTAMP-COMMIT/
+    manifest.json
+    environment.json
+    runs.csv
+    state.csv
+    transitions.csv
+    residuals.csv
+    dsfb.csv
+    objects.csv
+    summary.json
+    summary.md
+    commands.log
+    hashes.json
+```
+
+Never overwrite old evidence.
+
+---
+
+# 70. PHASE RECEIPTS
+
+Every phase ends with:
+
+```markdown
+# Phase X Receipt
+
+## Commit
+
+## Implemented
+
+## Normative format changes
+
+## Tests
+
+## Malformed-input court
+
+## Empirical court
+
+## Measured results
+
+## Negative controls
+
+## Mechanisms adopted
+
+## Mechanisms rejected
+
+## Open uncertainty
+
+## Verdict
+
+SEALED / NOT SEALED
+```
+
+---
+
+# 71. PROJECT CONTINUITY
+
+Maintain:
+
+```text
+PROJECT_STATE.md
+```
+
+containing:
+
+```text
+current commit
+current phase
+exact format version
+completed mechanisms
+court results
+current failures
+next concrete action
+format decisions frozen
+experimental decisions unfrozen
+evidence paths
+```
+
+Do not rely on chat history for project state.
+
+---
+
+# 72. REQUIRED SCIENTIFIC LANGUAGE
+
+Never write:
+
+```text
+VOLE eliminates video entropy
+VOLE recreates arbitrary video from math
+VOLE stores video with no pixels
+VOLE beats AV1
+VOLE has infinite resolution
+```
+
+without appropriate qualification or evidence.
+
+Correct language:
+
+> VOLE stores deterministic generative/configurational state and the residual information required to reconstruct the target.
+
+Correct language:
+
+> Raster frames become materialized views rather than necessarily the primary persistent representation.
+
+Correct language:
+
+> Procedural portions may be view- or resolution-independent while raster residuals remain tied to their declared sampling grid.
+
+Correct language:
+
+> On suitable workloads, transmitted information may track structural innovation more closely than repeated raster representation.
+
+Correct language:
+
+> Whether this reduces total storage, bandwidth, CPU, or memory is empirical.
+
+---
+
+# 73. THE KEY RESEARCH QUESTION
+
+The entire implementation exists to answer:
+
+> **How much of a video's raster sequence can be replaced by compact, persistent, deterministic generative state before the residual becomes the dominant representation, and can that state be stored, transported, searched, materialized, and re-optimized more efficiently than raster-centered alternatives?**
+
+Do not assume the answer.
+
+Build the machinery capable of measuring it.
+
+---
+
+# 74. DEFINITION OF SUCCESS
+
+The first major VOLE research release succeeds if it contains:
+
+```text
+real standalone .vole format
+real Procedural State Graph
+real persistent object identity
+real checkpoints
+real transitions
+real deterministic materializer
+real raster fallback
+real residual closure
+real native Rust encoder
+real inverse proceduralization
+real direct procedural ingest
+real exhaustive oracle
+real fixed heuristic
+real DSFB-guided search
+real structural-innovation transport court
+real negative controls
+real accounting
+real evidence
+```
+
+It does NOT need to beat AV1 everywhere.
+
+A result such as:
+
+```text
+desktop:
+    major procedural advantage
+
+synthetic animation:
+    very large advantage
+
+static surveillance:
+    useful advantage
+
+natural film:
+    conventional transform floor dominates
+
+noise:
+    RAW/rANS fallback
+```
+
+would be scientifically valuable.
+
+The implementation should discover VOLE's real domain rather than manufacture one.
+
+---
+
+# 75. FIRST DELIVERABLE — BEGIN HERE
+
+Before broad implementation:
+
+1. read `vole_procedural_video_prior_art.md` completely;
+2. inspect current DSFB;
+3. inspect current EntropyFS;
+4. inspect current VOLE repository if one exists;
+5. write `docs/architecture.md`;
+6. write `docs/procedural-state-graph.md`;
+7. write `docs/materialization.md`;
+8. write `docs/adr/0001-one-crate.md`;
+9. write `docs/adr/0002-procedural-state-is-primary.md`;
+10. write `docs/adr/0003-dsfb-zero-authority.md`;
+11. write `docs/adr/0004-entropyfs-optional.md`;
+12. write `docs/adr/0005-non-turing-complete-materializer.md`;
+13. define the smallest viable v1 packet syntax;
+14. implement Phase A completely;
+15. generate a procedural moving-object test sequence;
+16. encode it as persistent object + transitions;
+17. materialize the exact raster sequence;
+18. verify against the reference rasterizer;
+19. corrupt the stream systematically and prove bounded failure;
+20. seal the Phase A evidence;
+21. proceed to Phase B.
+
+Do NOT spend the first session merely creating architecture documents.
+
+The first session must end with a real procedural `.vole` stream being materialized into exact Gray8 raster frames.
+
+---
+
+# 76. THE FIRST PROOF OF THE IDEA
+
+The first VOLE demonstration should be conceptually trivial but architecturally decisive.
+
+Create:
+
+```text
+1920x1080 Gray8 canvas
+
+one 200x100 filled object
+
+t=0:
+    x=100
+
+t=1:
+    x=102
+
+t=2:
+    x=104
+
+...
+
+t=100:
+    x=300
+```
+
+Store:
+
+```text
+one object
+one instance
+one checkpoint
+one trajectory or sequence of transitions
+```
+
+not 101 complete raster frames.
+
+Materialize every frame.
+
+Verify every raster against a deterministic reference rasterizer.
+
+Then compare:
+
+```text
+VOLE persistent state bytes
+
+vs
+
+RAW raster bytes
+
+vs
+
+VOLE raster-only representation
+```
+
+Do not treat this synthetic result as evidence about natural video.
+
+It proves that the architecture genuinely stores **state evolution rather than raster repetition**.
+
+Then expand to scrolling, sparse mutation, exact reuse, and eventually arbitrary raster inverse proceduralization.
+
+---
+
+# 77. FINAL ENGINEERING PRINCIPLE
+
+Do not let VOLE regress into:
+
+> A conventional video codec with extra prediction modes.
+
+And do not let it expand into:
+
+> An unbounded scene scripting platform.
+
+VOLE should remain:
+
+> **A finite, deterministic, auditable procedural video state machine in which persistent mathematical/configurational structure is stored and transported directly, residual information closes the gap to the target observation, and raster samples are materialized only as required.**
+
+Every persistent bit must be accounted for.
+
+Every procedural operation must be bounded.
+
+Every lossless candidate must reproduce the target exactly.
+
+Every search optimization must remain subordinate to the materializer.
+
+Every claim must survive an empirical court.
+
+Build the procedural video system first.
+
+Then let the evidence tell us how much of video can actually become math.
+
+```
+
+This version changes the implementation order in the important way: **`ProceduralState → Checkpoint → Transition → Materialize` now exists before motion estimation, rANS sophistication, transforms, or DSFB.** That matches the improved paper rather than treating procedural representation as just another descriptor family. The earlier paper already established bounded materialization and zero-authority DSFB; the new goal makes state evolution itself the persisted video. :contentReference[oaicite:1]{index=1}
+
+The Phase A moving-object court is especially important. If Codex cannot produce a `.vole` file where one persistent object plus state evolution reconstructs 101 exact frames **without encoding 101 raster frames as the fundamental representation**, then it has not implemented VOLE yet.
+```
