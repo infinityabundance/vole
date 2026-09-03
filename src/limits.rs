@@ -32,6 +32,10 @@ pub struct Limits {
     /// Maximum transitions replayed forward from a checkpoint before the
     /// decode envelope is considered exhausted.
     pub max_transition_replay: u64,
+    /// Cumulative work budget for persistent-translation advances during one
+    /// parse/decode (count of per-instance position steps). A hostile stream
+    /// cannot force unbounded replay work through many moving instances.
+    pub max_transition_work: u64,
     /// Maximum number of intervals between the checkpoint base and the
     /// furthest materializable frame.
     pub max_checkpoint_distance: u64,
@@ -58,6 +62,7 @@ impl Default for Limits {
             max_instances: 1_048_576,
             max_transitions_per_interval: 1_000_000,
             max_transition_replay: 1_000_000,
+            max_transition_work: 1 << 22,
             max_checkpoint_distance: 1_000_000,
             max_dependency_depth: 8,
             max_copy_area: 1920 * 1080,

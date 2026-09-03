@@ -1,0 +1,25 @@
+{
+  "moving_object": {
+    "frames": 101,
+    "vx": 2,
+    "vy": 1,
+    "translation_stream_bytes": 1505,
+    "delta_baseline_bytes": 2692,
+    "raw_all_bytes": 209433600,
+    "trans_vs_delta_x": 1.79,
+    "raw_over_trans_x": 139159.0,
+    "exact_vs_reference": true
+  },
+  "camera_like": {
+    "frames": 201,
+    "stream_bytes": 2905,
+    "raw_all_bytes": 185241600,
+    "exact_vs_reference": true
+  },
+  "static_control": {
+    "frames": 101,
+    "all_frames_identical": true,
+    "stream_bytes": 1505
+  },
+  "semantics": "position(t+1)=position(t)+(vx,vy) via persistent per-instance translation + AdvanceTranslations"
+}

@@ -33,6 +33,10 @@ pub enum Transition {
     },
     /// Move an instance to an absolute canvas position.
     SetPosition { id: InstanceId, x: i64, y: i64 },
+    /// Set a persistent integer translation on an instance (Phase E).
+    SetVelocity { id: InstanceId, vx: i64, vy: i64 },
+    /// Apply every active integer translation once (Phase E).
+    AdvanceTranslations,
     /// Sparse overlay patch: authoritative pixel set above all instances.
     /// Points must be canonical sorted; each applied pixel persists until
     /// overwritten by a later sparse patch for that coordinate (Phase C).
@@ -85,6 +89,8 @@ impl Transition {
                 state.create_instance(*id, *object, *x, *y)
             }
             Transition::SetPosition { id, x, y } => state.set_position(*id, *x, *y),
+            Transition::SetVelocity { id, vx, vy } => state.set_velocity(*id, *vx, *vy),
+            Transition::AdvanceTranslations => state.advance_translations(),
             Transition::PatchSparse { points } => state.overlay_batch(points),
             // Frame-referencing ops act on the decode canvas, not on the
             // painter State, so they are no-ops here. Their bounds geometry is
@@ -101,6 +107,8 @@ impl Transition {
             Transition::DeclareObject(..) | Transition::DeclareFill { .. } => "declare_object",
             Transition::CreateInstance { .. } => "create_instance",
             Transition::SetPosition { .. } => "set_position",
+            Transition::SetVelocity { .. } => "set_velocity",
+            Transition::AdvanceTranslations => "advance_translations",
             Transition::PatchSparse { .. } => "patch_sparse",
             Transition::CopyRect { .. } => "copy_rect",
             Transition::MoveRect { .. } => "move_rect",

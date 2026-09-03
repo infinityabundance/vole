@@ -71,6 +71,8 @@ fn validate_timeline(
         st.create_instance(inst.id, inst.object_id, inst.x, inst.y)?;
     }
     let mut prev_t = 0u64;
+    let limits = crate::limits::Limits::default();
+    let mut advance_work: u64 = 0;
     for (t, trs) in timeline {
         if *t == 0 || *t <= prev_t {
             return Err(VoleError::NonConsecutiveInterval);
@@ -117,6 +119,12 @@ fn validate_timeline(
                 }
             }
             tr.apply(&mut st)?;
+            if let Transition::AdvanceTranslations = tr {
+                advance_work += st.moving_count() as u64;
+                if advance_work > limits.max_transition_work {
+                    return Err(VoleError::MaterializationBudgetExceeded);
+                }
+            }
         }
     }
     Ok(())

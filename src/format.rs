@@ -55,6 +55,8 @@ pub(crate) const TR_SET_POSITION: u8 = 0x22;
 pub(crate) const TR_PATCH_SPARSE: u8 = 0x23;
 pub(crate) const TR_COPY_RECT: u8 = 0x24;
 pub(crate) const TR_MOVE_RECT: u8 = 0x25;
+pub(crate) const TR_SET_VELOCITY: u8 = 0x26;
+pub(crate) const TR_ADVANCE_TRANSLATIONS: u8 = 0x27;
 
 /// Maximum representable absolute coordinate on the wire.
 pub(crate) const MAX_COORD: i64 = 1 << 24;
@@ -220,6 +222,7 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
     let mut cur = State::new(Interval::ZERO);
     let mut initial_opt: Option<State> = None;
     let mut saw_checkpoint = false;
+    let mut advance_work: u64 = 0;
     let mut intervals: Vec<(Interval, Vec<Transition>)> = Vec::new();
     let mut next_t = 0u64;
     let mut object_ids: HashSet<u32> = HashSet::new();
@@ -329,6 +332,15 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                             coord_guard(y)?;
                             Transition::SetPosition { id, x, y }
                         }
+                        TR_SET_VELOCITY => {
+                            let id = InstanceId(r.pull::<u32>()?);
+                            let vx = i64::from(r.pull::<i32>()?);
+                            let vy = i64::from(r.pull::<i32>()?);
+                            coord_guard(vx)?;
+                            coord_guard(vy)?;
+                            Transition::SetVelocity { id, vx, vy }
+                        }
+                        TR_ADVANCE_TRANSLATIONS => Transition::AdvanceTranslations,
                         TR_PATCH_SPARSE => {
                             let m = r.pull::<u32>()?;
                             if m as u64 > limits.max_canvas_bytes {
@@ -392,6 +404,15 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                         _ => return Err(VoleError::NonCanonicalEncoding),
                     };
                     tr.apply(&mut cur)?;
+                    if let Transition::AdvanceTranslations = tr {
+                        // Hostile bound: cumulative per-instance advance work must
+                        // stay inside the envelope (checked after the advance, so
+                        // the work itself is bounded by max_transition_work).
+                        advance_work += cur.moving_count() as u64;
+                        if advance_work > limits.max_transition_work {
+                            return Err(VoleError::MaterializationBudgetExceeded);
+                        }
+                    }
                     group.push(tr);
                 }
                 intervals.push((Interval(t), group));
@@ -551,6 +572,13 @@ fn write_transition(sink: &mut ByteSink, t: &Transition) -> Result<(), VoleError
             sink.push(wpos(*x))?;
             sink.push(wpos(*y))
         }
+        Transition::SetVelocity { id, vx, vy } => {
+            sink.byte(TR_SET_VELOCITY)?;
+            sink.push(id.0)?;
+            sink.push(wpos(*vx))?;
+            sink.push(wpos(*vy))
+        }
+        Transition::AdvanceTranslations => sink.byte(TR_ADVANCE_TRANSLATIONS),
         Transition::PatchSparse { points } => {
             sink.byte(TR_PATCH_SPARSE)?;
             sink.push(points.len() as u32)?;

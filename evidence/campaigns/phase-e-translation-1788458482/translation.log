@@ -1,0 +1,3 @@
+translation: frames=101 vx=2 vy=1 trans_stream=1505B delta_stream=2692B raw_all=209433600B trans_vs_delta=1.79x raw_over_trans=139159x exact=true
+camera: frames=201 stream=2905B raw_all=185241600B exact=true
+static-control: frames=101 all_identical=true stream=1505B

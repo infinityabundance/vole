@@ -66,8 +66,14 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
   * `0x24 sx:i32 sy:i32 w:u32 h:u32 dx:i32 dy:i32` — COPY_RECT from the prior
     decoded frame (Phase D machinery).
   * `0x25 sx:i32 sy:i32 w:u32 h:u32 dx:i32 dy:i32` — MOVE_RECT (Phase D).
-* `|x|,|y| ≤ 2^24`; for copy ops `w,h ≠ 0` and `w*h ≤ max_copy_area` ⇒ else a
-  typed error.
+  * `0x26 iid:u32 vx:i32 vy:i32` — set a persistent integer translation on an
+    instance (Phase E).
+  * `0x27` — advance every active translation once: `position += (vx, vy)`
+    (Phase E).
+* `|x|,|y|,|vx|,|vy| ≤ 2^24`; for copy ops `w,h ≠ 0` and `w*h ≤ max_copy_area`
+  ⇒ else a typed error.
+* Cumulative translation-advance work (`moving_count` summed over every
+  `0x27`) is capped by `Limits.max_transition_work` at parse and encode time.
 
 ### Integrity
 

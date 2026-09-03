@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// Instance identity in format-v1 index space.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct InstanceId(pub u32);
 
 /// A placed, orderable instance of an immutable object.
@@ -49,6 +49,11 @@ pub struct State {
     /// mutation). Keyed by canvas coordinate; a set pixel persists until
     /// overwritten.
     overlay: BTreeMap<(i64, i64), u8>,
+    /// Persistent integer translation state per instance (Phase E). A
+    /// translation `(vx, vy)` is applied once per `AdvanceTranslations`
+    /// transition: `position(t+1) = position(t) + (vx, vy)`. Absence from this
+    /// map means the instance is stationary (velocity `(0,0)`).
+    velocities: BTreeMap<InstanceId, (i64, i64)>,
     /// Which interval this state snapshot was produced for (diagnostics and
     /// checkpoint anchoring; a fresh state is interval ZERO).
     interval: Interval,
@@ -61,6 +66,7 @@ impl Default for State {
             objects: BTreeMap::new(),
             instances: Vec::new(),
             overlay: BTreeMap::new(),
+            velocities: BTreeMap::new(),
             interval: Interval::ZERO,
         }
     }
@@ -176,6 +182,58 @@ impl State {
             .ok_or(VoleError::UnknownInstance)?;
         inst.x = x;
         inst.y = y;
+        Ok(())
+    }
+
+    /// Set a persistent integer translation `(vx, vy)` on an instance. The
+    /// translation is applied once per [`State::advance_translations`], so the
+    /// instance's position follows `position(t+1) = position(t) + (vx, vy)`
+    /// while the translation is active. A `(0,0)` translation deactivates
+    /// (equivalent to no entry). Setting a translation on an unknown instance
+    /// is a typed error.
+    pub fn set_velocity(&mut self, id: InstanceId, vx: i64, vy: i64) -> Result<(), VoleError> {
+        if !self.instances.iter().any(|i| i.id == id) {
+            return Err(VoleError::UnknownInstance);
+        }
+        if vx == 0 && vy == 0 {
+            self.velocities.remove(&id);
+        } else {
+            self.velocities.insert(id, (vx, vy));
+        }
+        Ok(())
+    }
+
+    /// Active translation of an instance (default `(0,0)`).
+    pub fn velocity(&self, id: InstanceId) -> (i64, i64) {
+        self.velocities.get(&id).copied().unwrap_or((0, 0))
+    }
+
+    /// Number of instances with an active (non-zero) translation.
+    pub fn moving_count(&self) -> usize {
+        self.velocities.len()
+    }
+
+    /// Apply every active integer translation exactly once: for each moving
+    /// instance, `x += vx; y += vy` with checked arithmetic (an over-large
+    /// accumulated position is a typed error, never a wrap). Runs in one pass
+    /// over the instance list (O(instances), no quadratic id lookup).
+    pub fn advance_translations(&mut self) -> Result<(), VoleError> {
+        for inst in self.instances.iter_mut() {
+            let Some((vx, vy)) = self.velocities.get(&inst.id).copied() else {
+                continue;
+            };
+            if vx == 0 && vy == 0 {
+                continue;
+            }
+            inst.x = inst
+                .x
+                .checked_add(vx)
+                .ok_or(VoleError::ArithmeticOverflow)?;
+            inst.y = inst
+                .y
+                .checked_add(vy)
+                .ok_or(VoleError::ArithmeticOverflow)?;
+        }
         Ok(())
     }
 

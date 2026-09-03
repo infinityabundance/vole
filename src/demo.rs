@@ -517,3 +517,181 @@ impl ScrollCourt {
         u64::from(self.width) * u64::from(self.height) * self.frame_count()
     }
 }
+
+/// Phase-E integer-translation court: a persistent object whose instance
+/// carries a persistent integer translation `(vx, vy)`, so the stream is
+/// `position(t+1) = position(t) + (vx, vy)`. The representation is stored as
+/// one `SetVelocity` plus one tiny `AdvanceTranslations` per interval — *not*
+/// as per-frame absolute `SetPosition` coordinate payloads, and never as
+/// repeated frame rasters.
+pub struct TranslationCourt {
+    /// Canvas width.
+    pub width: u32,
+    /// Canvas height.
+    pub height: u32,
+    /// Object box width.
+    pub box_w: u32,
+    /// Object box height.
+    pub box_h: u32,
+    /// Object fill value.
+    pub value: u8,
+    /// Object / instance ids.
+    pub object_id: u32,
+    pub instance_id: u32,
+    /// Start position.
+    pub x0: i64,
+    pub y0: i64,
+    /// Persistent integer translation (per interval).
+    pub vx: i64,
+    pub vy: i64,
+    /// Number of intervals (frames == intervals + 1).
+    pub intervals: u64,
+}
+
+impl Default for TranslationCourt {
+    fn default() -> Self {
+        TranslationCourt {
+            width: 1920,
+            height: 1080,
+            box_w: 200,
+            box_h: 100,
+            value: 180,
+            object_id: 7,
+            instance_id: 1,
+            x0: 100,
+            y0: 60,
+            vx: 2,
+            vy: 1,
+            intervals: 100,
+        }
+    }
+}
+
+impl TranslationCourt {
+    fn object(&self) -> Object {
+        Object::fill(self.box_w, self.box_h, self.value).expect("box fits")
+    }
+
+    fn instance_at(&self, k: u64) -> Instance {
+        Instance {
+            id: InstanceId(self.instance_id),
+            object_id: ObjectId(self.object_id),
+            x: self.x0 + self.vx * (k as i64),
+            y: self.y0 + self.vy * (k as i64),
+        }
+    }
+
+    /// Canonical `.vole` bytes using the persistent-translation representation:
+    /// one `SetVelocity`, then `AdvanceTranslations` per interval.
+    pub fn vole(&self) -> Result<Vec<u8>, VoleError> {
+        let mut timeline: Vec<(u64, Vec<Transition>)> = Vec::new();
+        for k in 1..=self.intervals {
+            let group = if k == 1 {
+                vec![
+                    Transition::SetVelocity {
+                        id: InstanceId(self.instance_id),
+                        vx: self.vx,
+                        vy: self.vy,
+                    },
+                    Transition::AdvanceTranslations,
+                ]
+            } else {
+                vec![Transition::AdvanceTranslations]
+            };
+            timeline.push((k, group));
+        }
+        encoder::encode_stream(
+            self.width,
+            self.height,
+            0,
+            &[(self.object_id, self.object())],
+            &[self.instance_at(0)],
+            &timeline,
+        )
+    }
+
+    /// Independent reference `.raw` frames (box painted at `(x0+vx*k, y0+vy*k)`).
+    pub fn reference_raw(&self) -> Vec<u8> {
+        let raster = self.object().expand();
+        let mut raw = Vec::new();
+        for k in 0..=self.intervals {
+            let inst = self.instance_at(k);
+            raw.extend(reference_painter(
+                self.width,
+                self.height,
+                0,
+                &[(inst.x, inst.y, &raster, self.box_w, self.box_h)],
+            ));
+        }
+        raw
+    }
+
+    /// Materialize and byte-exact verify against the independent reference.
+    pub fn materialize_and_verify(&self) -> Result<Vec<Canvas>, VoleError> {
+        let parsed = decoder::decode_bytes(&self.vole()?)?;
+        let frames = decoder::materialize_all(&parsed)?;
+        let mut got = Vec::new();
+        for c in &frames {
+            got.extend_from_slice(c.as_slice());
+        }
+        if got != self.reference_raw() {
+            return Err(VoleError::ApiConstraint(
+                "translation diverged from reference",
+            ));
+        }
+        Ok(frames)
+    }
+
+    /// The equivalent per-frame absolute `SetPosition` stream (baseline for
+    /// the byte comparison; same frames, no persistent translation state).
+    pub fn delta_baseline_bytes(&self) -> Result<Vec<u8>, VoleError> {
+        let mut timeline = Vec::new();
+        for k in 1..=self.intervals {
+            let inst = self.instance_at(k);
+            timeline.push((
+                k,
+                vec![Transition::SetPosition {
+                    id: InstanceId(self.instance_id),
+                    x: inst.x,
+                    y: inst.y,
+                }],
+            ));
+        }
+        encoder::encode_stream(
+            self.width,
+            self.height,
+            0,
+            &[(self.object_id, self.object())],
+            &[self.instance_at(0)],
+            &timeline,
+        )
+    }
+
+    /// Number of materializable frames.
+    pub fn frame_count(&self) -> u64 {
+        1 + self.intervals
+    }
+
+    /// Total raw raster bytes of the canonical frame sequence.
+    pub fn raw_bytes_all(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height) * self.frame_count()
+    }
+}
+
+/// Exactness gate for a translation hypothesis: the hypothesis `(x0 + vx*k,
+/// y0 + vy*k)` must reproduce every target position. If any frame disagrees,
+/// a translation-only representation cannot be lossless and must be rejected
+/// (this is the Phase-E negative-control gate; the full candidate court is
+/// Phase G).
+pub fn translation_hypothesis_exact(
+    x0: i64,
+    y0: i64,
+    vx: i64,
+    vy: i64,
+    positions: &[(i64, i64)],
+) -> bool {
+    positions
+        .iter()
+        .enumerate()
+        .all(|(k, (x, y))| *x == x0 + vx * (k as i64) && *y == y0 + vy * (k as i64))
+}
