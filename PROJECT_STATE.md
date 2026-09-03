@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** (see `git log` — light live ledger updated on each seal)
-**Current phase:** A (bounded procedural core) — awaiting official seal commit.
+**Current head:** `5ef838e` (Phase A sealed)
+**Current phase:** B (persistent object identity) — in progress.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
 
 ## Completed (measured, courted, sealed)

@@ -1,6 +1,6 @@
 # Phase A Receipt — bounded procedural core
 
-*Sealed 2026 (head recorded in evidence environment.json).*
+*Sealed 2026 at commit `5ef838e` (see `evidence/.../environment.json`).*
 
 ## Implemented
 
