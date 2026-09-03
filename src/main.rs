@@ -11,7 +11,7 @@
 
 use std::io::Write as _;
 
-use vole::{decoder, demo, error::VoleError, format::ParsedStream, pixel::Canvas};
+use vole_video::{decoder, demo, error::VoleError, format::ParsedStream, pixel::Canvas};
 
 fn main() -> Result<(), VoleError> {
     let mut a = std::env::args().skip(1);

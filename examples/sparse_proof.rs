@@ -3,7 +3,7 @@
 //! `cargo run --example sparse_proof` prints a deterministic single-line
 //! report that the evidence-campaign script consumes.
 
-use vole::{decoder, demo, pixel::Canvas};
+use vole_video::{decoder, demo, pixel::Canvas};
 
 fn main() {
     let court = demo::BlinkCourt::default();

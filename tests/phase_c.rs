@@ -2,7 +2,7 @@
 //! enforcement, and cost that is proportional to changed pixels, not to full
 //! raster repetition.
 
-use vole::{
+use vole_video::{
     decoder, demo,
     error::VoleError,
     object::{Object, ObjectId},
@@ -47,7 +47,7 @@ fn unsorted_sparse_patch_rejected() {
     let tr = Transition::PatchSparse {
         points: vec![(2, 0, 5), (1, 0, 6)],
     };
-    let res = vole::encoder::encode_stream(16, 16, 0, &[(1, obj)], &[inst], &[(1, vec![tr])]);
+    let res = vole_video::encoder::encode_stream(16, 16, 0, &[(1, obj)], &[inst], &[(1, vec![tr])]);
     assert_eq!(res.unwrap_err(), VoleError::NonCanonicalEncoding);
 }
 

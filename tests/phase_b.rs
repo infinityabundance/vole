@@ -1,7 +1,7 @@
 //! Phase-B courts: persistent object identity (content addressing) and the
 //! unchanged-state lane with amortized-cost accounting.
 
-use vole::{demo, error::VoleError, identity, object::Object};
+use vole_video::{demo, error::VoleError, identity, object::Object};
 
 #[test]
 fn object_content_identity_is_exact_and_stable() -> Result<(), VoleError> {

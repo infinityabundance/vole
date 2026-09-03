@@ -2,7 +2,7 @@
 //! against an *independent* reference rasterizer, and confirm no full raster
 //! repetition is stored.
 
-use vole::{decoder, demo, error::VoleError};
+use vole_video::{decoder, demo, error::VoleError};
 
 #[test]
 fn moving_rect_materializes_exactly_reference() -> Result<(), VoleError> {

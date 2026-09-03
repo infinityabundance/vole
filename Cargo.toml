@@ -1,10 +1,12 @@
 [package]
-name = "vole"
+name = "vole-video"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.98"
 description = "VOLE — Video Object Layer Engine. Deterministic procedural video storage, transport, inverse proceduralization and materialization."
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/infinityabundance/vole"
+readme = "README.md"
 keywords = ["video", "procedural", "state", "materialization", "compression"]
 categories = ["multimedia::video", "compression"]
 

@@ -1,7 +1,7 @@
 //! Hostile-stream court: systematic corruption must yield typed deterministic
 //! errors, never panics, OOM, hangs, or memory corruption (Phase-A acceptance).
 
-use vole::{decoder, demo, error::VoleError};
+use vole_video::{decoder, demo, error::VoleError};
 
 fn court_bytes() -> Vec<u8> {
     demo::MovingRectCourt::default()
@@ -139,7 +139,7 @@ fn duplicate_object_id_rejected() {
 }
 
 fn encoder_duplicate_is_rejected() -> Result<(), VoleError> {
-    use vole::{encoder, object::Object};
+    use vole_video::{encoder, object::Object};
     let a = Object::fill(4, 4, 9)?;
     let b = Object::fill(4, 4, 9)?;
     encoder::encode_stream(64, 64, 0, &[(1, a), (1, b)], &[], &[]).map(|_| ())
@@ -163,7 +163,7 @@ fn hostile_inputs_that_decode_still_materialize_within_limits() {
     // After valid decode, materializing never panics and never oversteps.
     let full = court_bytes();
     let parsed = decoder::decode_bytes(&full).expect("canonical decodes");
-    let frames = vole::decoder::materialize_all(&parsed).expect("frames okay");
+    let frames = vole_video::decoder::materialize_all(&parsed).expect("frames okay");
     assert_eq!(frames.len(), parsed.frame_count() as usize);
     let mut b = full;
     // extra trailing garbage beyond trailer must not panic and will fail
