@@ -1,5 +1,10 @@
 # VOLE — Video Object Layer Engine
 
+> de Beer, R. (2026). VOLE: Procedural Video Storage and Transport by
+> Deterministic State Materialization - Broad Prior-Art Technical Disclosure and
+> Research Architecture (Version v1.0). Zenodo.
+> <https://doi.org/10.5281/zenodo.22284396>
+
 **Native-Rust procedural video storage, transport, inverse-proceduralization,
 and deterministic materialization.**
 
