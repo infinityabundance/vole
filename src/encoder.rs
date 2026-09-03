@@ -126,7 +126,11 @@ fn validate_timeline(
                 }
             }
             if let Transition::Residual { block } = tr {
-                crate::rans::check_block(block, limits.max_residual_bytes)?;
+                if block.first() == Some(&crate::rans::KIND_TSF) {
+                    crate::transform::check_block(block, limits.max_residual_bytes, width, height)?;
+                } else {
+                    crate::rans::check_block(block, limits.max_residual_bytes)?;
+                }
             }
             if let Transition::SetTrajectory { segments, .. } = tr {
                 crate::trajectory::check_program(segments, &limits)?;
@@ -312,7 +316,11 @@ fn validate_palette_stream(
                 }
             }
             if let Transition::Residual { block } = tr {
-                crate::rans::check_block(block, limits.max_residual_bytes)?;
+                if block.first() == Some(&crate::rans::KIND_TSF) {
+                    crate::transform::check_block(block, limits.max_residual_bytes, width, height)?;
+                } else {
+                    crate::rans::check_block(block, limits.max_residual_bytes)?;
+                }
             }
             if let Transition::SetTrajectory { segments, .. } = tr {
                 crate::trajectory::check_program(segments, &limits)?;

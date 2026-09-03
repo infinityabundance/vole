@@ -221,10 +221,23 @@ fn steady_wrap_scroll_seven_dsfb_adapts_fixed_heuristic_misses() -> Result<(), V
         fx.vole.len(),
         ds.vole.len()
     );
-    assert_eq!(
-        raw_rebases(&fx),
-        24,
-        "fixed heuristic must rebase every scroll frame"
+    // The fixed heuristic only probes copy shifts 1..=3: scroll-by-7 is
+    // invisible to it as a copy. Since Phase M, the transform floor absorbs
+    // each dense scroll frame at ~950 B instead of a full-raster rebase, so
+    // the probe-blind stream is no longer measured by rebase count but by
+    // cost: it stays many times larger than the copy-serving oracle/DSFB
+    // streams (measured 23 385 B vs 2 883 B = 8.1x on this court).
+    assert!(
+        fx.vole.len() > ds.vole.len() * 4,
+        "fixed heuristic {}B should dwarf DSFB {}B on s=7 wrap",
+        fx.vole.len(),
+        ds.vole.len()
+    );
+    assert!(
+        fx.vole.len() > ex.vole.len() * 4,
+        "fixed heuristic {}B should dwarf oracle {}B on s=7 wrap",
+        fx.vole.len(),
+        ex.vole.len()
     );
     assert_eq!(
         raw_rebases(&ds),

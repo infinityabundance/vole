@@ -1,0 +1,79 @@
+{
+  "phase": "M",
+  "semantics": "deterministic integer transform residual floor (conventional-coder behavior inside VOLE). A new residual block kind (KIND_TSF = 2, tag 0x2a) codes the signed residual field target - base over aligned 4x4 blocks with a separable integer lifting DCT: rotations factor into three reversible Q8 lifting steps (even part theta = -pi/4: A = 106, B = -181; odd part theta = -pi/8: A = 51, B = -98; signed >> 8 is floor, consistent both directions), so the transform is lossless integer arithmetic with no floating point and no quantization. Wire: [2][tfm=0][skip mask ceil(Bx*By/8) bytes, LSB-first, pad bits must be 0][u32 dc_len][u32 ac_len][dc container][ac container]; dc = 4 bytes (zigzag u32 LE) per coded block, ac = 60 bytes per coded block, in row-major block order; edge blocks zero-padded. Decoder inverse-transforms (columns then rows) and adds the reconstruction back; results outside 0..=255 are OutOfBounds. Encoder: the TRANSFORM_RESIDUAL family is evaluated by the exhaustive court whenever 9k (raw point residual) >= mask+64, and by the fixed-heuristic/DSFB probe only when the diff is also dense (>= canvas/16); DSFB governs it like every other family (Full when active, Probe on the rotating sweep). Accounting: inline models are a sub-bucket (model_bytes) excluded from residual_bytes so the ten buckets still sum to the stream length exactly (fixes a latent double count for rANS point residuals).",
+  "candidate_gates": {
+    "transform_full": "9k >= mask_len + 64 (possible win over the point-list floor)",
+    "transform_probe": "9k >= mask_len + 64 and k >= canvas/16 (dense only)",
+    "block_size": 4,
+    "transform_id": 0,
+    "coeffs_per_block": 16,
+    "sub_models_max": 2
+  },
+  "courts": {
+    "drift_flag_1920x1080": {
+      "content": "non-uniform doubly-curved base (x^2/2^sh + y^2/2^sh, brightness not equivalent to any scroll/copy) plus 8 whole-canvas brightness-drift frames (+1..+8)",
+      "frames": 9,
+      "vole_bytes": 2632475,
+      "raw_all_bytes": 18662400,
+      "ratio_raw_x": 7,
+      "interval_total_bytes": 558784,
+      "interval_cost_bytes": 69848,
+      "winners": "rawx1 transform_residualx8",
+      "exact": true,
+      "note": "frame 0 pays the one whole-canvas base raster; every drift interval is served by the transform floor at ~69.8 KB vs the 2 073 645 B raw reset (29.7x) and the 10 467 936 B point residual (150x); end-to-end decode-verified frame by frame"
+    },
+    "delta_480x270": {
+      "content": "same delta coded both ways (transform block vs Phase-G point container)",
+      "pts": 129600,
+      "transform_block_bytes": 5906,
+      "point_block_bytes": 549268,
+      "ratio_vs_point_x": 93,
+      "note": "smooth dense deltas are one point per pixel in point form; the transform floor carries them at 1/93 of that"
+    },
+    "textured_128x96": {
+      "content": "smooth ramp + small periodic texture drifting per frame",
+      "frames": 8,
+      "exact": true,
+      "note": "transform floor wins at least one frame; stream decodes byte-identical; accounting buckets sum to the stream length"
+    },
+    "full_range_ramp_160x120": {
+      "content": "wrap-around ramp across the whole Gray8 scale, drifting",
+      "frames": 7,
+      "exact": true,
+      "note": "dense and smooth within blocks; transform floor appears among winners; every frame byte-exact"
+    },
+    "noise_64x48": {
+      "content": "negative control: full-canvas deterministic noise",
+      "frames": 6,
+      "vole_bytes": 18748,
+      "winners": "rawx6",
+      "exact": true,
+      "note": "no smooth structure to compact: transform_residual never wins"
+    },
+    "strategies_160x120": {
+      "content": "brightness-drift content under Exhaustive vs FixedHeuristic",
+      "frames": 7,
+      "exhaustive_bytes": 29575,
+      "fixed_heuristic_bytes": 29575,
+      "J_ratio": 1.0,
+      "winners": "rawx1 transform_residualx6 (both)",
+      "exact": true,
+      "note": "the floor is reachable from the fixed probe (dense gate), so both strategies land identical streams"
+    }
+  },
+  "hostile": {
+    "parse": "unknown transform id, set padding mask bit, dc_len/ac_len disagreement, truncation -> typed (NonCanonicalEncoding / Truncated) before the trailer runs",
+    "materialize": "flipping a rANS model byte inside a DC container -> typed EntropyCorrupt at materialization; a hand-built RAW-container payload with a huge zigzag coefficient -> typed OutOfBounds (reconstruction outside Gray8)",
+    "unit": "crate-internal apply-layer courts in src/transform.rs: exact application, unknown id, padding bit, length disagreement, out-of-range coefficient, truncation"
+  },
+  "all_streams_exact": true,
+  "test_count": "tests/phase_m.rs (9 courts) + src/transform.rs unit courts (7); full gate: cargo fmt --check, cargo check --all-targets, cargo clippy --all-targets --all-features -- -D warnings, cargo test --all-features (176 tests, 0 failures, dev and release)",
+  "notes": [
+    "Normative format change: residual block kind 2 (transform-coded); transform id 0; no new tag, no new Limits field (payload bounded by max_residual_bytes; decode work bounded by the block count of the canvas).",
+    "The lifting-DCT is exact by construction (each stage is an invertible integer map; butterflies halve exactly on canonical streams) and the roundtrip property inverse(forward(x)) == x is asserted over thousands of random blocks plus the encoder's end-to-end decode verification.",
+    "Accounting fix recorded, not hidden: rANS point residuals previously double-counted their 512 B inline model (model_bytes inside residual_bytes); models are now a sub-bucket so the ten buckets sum exactly.",
+    "Phase H re-measurement recorded: the fixed-heuristic scroll-by-7 court no longer measures raw-rebase count (the transform floor absorbs dense scroll frames at ~950 B); it now measures cost - 23 385 B vs 2 883 B (8.1x, pre-Phase-M measurement was 11.5x by rebase). Copy blindness of the fixed probe is unchanged.",
+    "4x4-only in v1; block-size extension and per-position coefficient contexts are recorded Phase-O surface (coefficient streams use one order-0 byte model per container in v1).",
+    "A transform residual never wins on tiny diffs (gate) or noise (measured); the floor is one more bounded candidate the cost court may reject - the court decides, never the family's existence."
+  ]
+}

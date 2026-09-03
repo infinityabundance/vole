@@ -88,15 +88,33 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
   * `0x28` — clear every live instance; instance ids are freed for reuse
     (Phase G content replacement).
   * `0x29` — clear every persistent overlay point (Phase G).
-  * `0x2a len:u32 block` — per-frame residual (Phase G). `block` is a
-    Phase-F self-describing payload (`rans::encode_block`: kind u8 + out_len
-    u64 + inline model? + payload) whose decoded bytes are a canonical,
-    strict-sorted, in-canvas sparse point list `(x:i32 y:i32 v:u8)*` (9 bytes
-    per point). `len ≤ max_residual_bytes`; the block is structurally
-    validated at parse time and decoded only when the frame it appears in is
-    materialized. The residual is a **canvas op** applied in listed order
-    after any COPY_RECT/MOVE_RECT: it is one-shot for its frame and never
-    mutates persistent state.
+  * `0x2a len:u32 block` — per-frame residual (Phase G/M). The residual is a
+    **canvas op** applied in listed order after any COPY_RECT/MOVE_RECT: it
+    is one-shot for its frame and never mutates persistent state. `len ≤
+    max_residual_bytes`; the block is structurally validated at parse time
+    and decoded only when the frame it appears in is materialized. Two block
+    families are normative:
+    * **kind `0x00`/`0x01` (Phase G point residual)** — a Phase-F
+      self-describing payload (`rans::encode_block`: kind u8 + out_len u64 +
+      inline model? + payload) whose decoded bytes are a canonical,
+      strict-sorted, in-canvas sparse point list `(x:i32 y:i32 v:u8)*`
+      (9 bytes per point); each point **overwrites** its pixel with `v`;
+    * **kind `0x02` (Phase M transform residual)** — the signed residual
+      field `target − base` is partitioned into aligned 4×4 blocks over the
+      canvas (`Bx = ceil(w/4) × By = ceil(h/4)`; partial edge blocks are
+      zero-padded). Layout:
+      `[2][tfm u8 = 0][mask: ceil(Bx·By/8) bytes][u32 dc_len][u32 ac_len]`
+      followed by two self-describing Phase-F containers. Mask bit `k`
+      (LSB-first; `k = by·Bx + bx`) marks a coded block; padding bits past
+      `Bx·By` must be 0. The dc container decodes to 4 bytes per coded block
+      (zigzag `u32` LE of the DC coefficient `C00`) and the ac container to
+      60 bytes per coded block (zigzag `u32` LE of `C01..C33` row-major),
+      in row-major block order. The decoder inverse-transforms each coded
+      block with the normative integer lifting DCT (`tfm = 0`; see
+      `docs/phase-m.md` and `src/transform.rs`) and **adds** the
+      reconstruction to the canvas; a result outside `0..=255` is
+      `OutOfBounds`. `tfm` values other than 0 are unknown mandatory
+      features and fail closed.
   * `0x2b iid:u32 count:u32 seg*` — attach a bounded parametric trajectory
     program to an instance (Phase I). `count == 0` deactivates any active
     trajectory on the instance. Trajectory and translation (`0x26`) state on

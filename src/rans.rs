@@ -60,6 +60,12 @@ pub const MODEL_SERIALIZED: usize = 512;
 pub const KIND_RAW: u8 = 0;
 /// Kind byte for the rANS payload container.
 pub const KIND_RANS: u8 = 1;
+/// Kind byte for the transform-coded residual container (Phase M): the body
+/// is a transform-residual payload (see `crate::transform`) rather than a
+/// decoded byte list. The container grammar differs, so kind-2 bodies are
+/// parsed by `crate::transform::check_block` / the materializer, never by
+/// `decode_block`.
+pub const KIND_TSF: u8 = 2;
 
 /// An order-0 static byte model: normalized frequencies and cumulative sums.
 ///

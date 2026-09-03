@@ -88,6 +88,10 @@ pub struct FramePlan {
     /// Phase K: variable-region repair family. Full walks the 64→32→16→8
     /// granularity ladder; Probe evaluates the fixed probe granularity only.
     pub regions: Mode,
+    /// Phase M: transform-coded residual floor. Full evaluates the transform
+    /// whenever it could beat the point-list baselines; Probe only when the
+    /// per-frame diff is dense (≥ 1/16 canvas).
+    pub transform: Mode,
     /// Whether the previous frame's winner emitted copy ops available for a
     /// probe replay.
     pub replay_ops: bool,
@@ -106,6 +110,7 @@ impl FramePlan {
             translation: Mode::Full,
             copies: Mode::Full,
             regions: Mode::Full,
+            transform: Mode::Full,
             replay_ops: false,
             broaden: false,
         }
@@ -131,6 +136,7 @@ impl FramePlan {
             translation: Mode::Full,
             copies: Mode::Probe,
             regions: Mode::Probe,
+            transform: Mode::Probe,
             replay_ops: true,
             broaden: false,
         }
@@ -277,6 +283,7 @@ impl DsfbModel {
             translation: Mode::Off,
             copies: Mode::Off,
             regions: Mode::Off,
+            transform: Mode::Off,
             replay_ops: true,
             broaden: false,
         };
@@ -288,6 +295,9 @@ impl DsfbModel {
         }
         if active.contains(&"regions") {
             p.regions = Mode::Full;
+        }
+        if active.contains(&"transform_residual") {
+            p.transform = Mode::Full;
         }
         // Deterministic rotating sweep (sentinel hypothesis): periodically
         // re-probe the non-active families so a silent regime change is found
@@ -301,6 +311,9 @@ impl DsfbModel {
             }
             if p.regions == Mode::Off {
                 p.regions = Mode::Probe;
+            }
+            if p.transform == Mode::Off {
+                p.transform = Mode::Probe;
             }
         }
         p

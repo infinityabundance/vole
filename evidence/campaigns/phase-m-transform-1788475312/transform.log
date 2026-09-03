@@ -1,0 +1,25 @@
+   Compiling vole-video v0.8.0 (/mnt/1tb_kingston/vole)
+    Finished `release` profile [optimized] target(s) in 3.65s
+     Running `target/release/examples/transform_proof`
+drift-flag-1920x1080: frames=9 vole=2632475B raw_all=18662400B ratio_raw=7x interval_total=558784B winners=[rawx1 transform_residualx8] exact=true encode_ms=2193
+drift-flag first-interval: transform=69848B raw_reset=2073645B point_residual=10467936B model_bytes=8192B residual_bytes=550448B
+delta-480x270: pts=129600 transform_block=5906B point_block=549268B raw_delta_bytes=129600B ratio_vs_point=93.0x
+noise-64x48 (negative): frames=6 vole=18748B winners=[rawx6] exact=true
+drift-160x120 strategies: exhaustive=29575B winners=[rawx1 transform_residualx6] fixed_heuristic=29575B winners=[rawx1 transform_residualx6] J_ratio=1.000 exact=true
+   Compiling vole-video v0.8.0 (/mnt/1tb_kingston/vole)
+    Finished `release` profile [optimized] target(s) in 2.40s
+     Running tests/phase_m.rs (target/release/deps/phase_m-83e2cd1536b5f4d7)
+
+running 9 tests
+test hostile_transform_streams_fail_typed_at_parse_and_materialize ... ok
+test transform_block_beats_the_point_residual_on_the_same_delta ... ok
+test transform_payload_out_of_range_reconstruction_is_typed ... ok
+test tiny_localized_change_never_pays_the_transform_overhead ... ok
+test drifting_full_range_ramp_is_exact_and_uses_the_transform_floor ... ok
+test brightness_drift_is_transform_coded_and_stays_exact ... ok
+test noise_negative_control_stays_raw ... ok
+test oracle_invariant_holds_with_the_transform_family ... ok
+test textured_drift_is_exact_with_a_transform_winner ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.35s
+

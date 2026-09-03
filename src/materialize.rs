@@ -89,16 +89,21 @@ pub(crate) fn apply_copy(
     Ok(())
 }
 
-/// Decode and apply a per-frame residual block onto `dst` (Phase G). The
-/// decoded payload must be a canonical, strict-sorted, in-canvas sparse point
-/// list; any deviation is a typed error. This is the `⊕_ρ` residual algebra
-/// applied to the materialized base: it is authoritative for the frame and has
-/// no persistent-state side effect.
+/// Decode and apply a per-frame residual block onto `dst` (Phase G). A
+/// kind-0/1 block (RAW/rANS) decodes to a canonical, strict-sorted,
+/// in-canvas sparse point list; a kind-2 block (Phase M) is a transform-coded
+/// additive residual (see `crate::transform`). Any deviation is a typed
+/// error. This is the `⊕_ρ` residual algebra applied to the materialized
+/// base: it is authoritative for the frame and has no persistent-state side
+/// effect.
 pub(crate) fn apply_residual(
     dst: &mut Canvas,
     block: &[u8],
     limits: &Limits,
 ) -> Result<(), VoleError> {
+    if block.first() == Some(&crate::rans::KIND_TSF) {
+        return apply_transform_residual(dst, block, limits);
+    }
     let payload = crate::rans::decode_block(block, limits.max_residual_bytes)?;
     if payload.len() % 9 != 0 {
         return Err(VoleError::NonCanonicalEncoding);
@@ -123,6 +128,115 @@ pub(crate) fn apply_residual(
             u32::try_from(y).expect("bounded above by height"),
             v,
         );
+    }
+    Ok(())
+}
+
+/// Apply a transform-coded residual (Phase M, kind 2) onto `dst`: every coded
+/// `4×4` block is inverse-transformed (normative integer lifting DCT) and its
+/// reconstructed samples are **added** to the canvas; a result outside the
+/// Gray8 domain `0..=255` is `OutOfBounds` (typed). Structure, mask padding,
+/// coefficient counts, and container framing are all canonical-checked here;
+/// hostile input resolves to a typed error, never a panic.
+fn apply_transform_residual(
+    dst: &mut Canvas,
+    block: &[u8],
+    limits: &Limits,
+) -> Result<(), VoleError> {
+    if block.len() < 2 {
+        return Err(VoleError::Truncated);
+    }
+    if block[1] != crate::transform::TRANSFORM_ID_4X4 {
+        return Err(VoleError::NonCanonicalEncoding);
+    }
+    let (w, h) = (dst.width(), dst.height());
+    let (bx, by) = crate::transform::blocks_per_axis(w, h);
+    let nblocks = bx.checked_mul(by).ok_or(VoleError::ArithmeticOverflow)?;
+    let mlen = crate::transform::mask_len(w, h);
+    let o = 2usize
+        .checked_add(mlen)
+        .ok_or(VoleError::ArithmeticOverflow)?;
+    if block.len() < o + 8 {
+        return Err(VoleError::Truncated);
+    }
+    let mask = &block[2..o];
+    let used = nblocks % 8;
+    if used != 0 && mask[mlen - 1] & !((1u8 << used) - 1) != 0 {
+        return Err(VoleError::NonCanonicalEncoding);
+    }
+    let dc_len = u64::from(u32::from_le_bytes([
+        block[o],
+        block[o + 1],
+        block[o + 2],
+        block[o + 3],
+    ]));
+    let ac_len = u64::from(u32::from_le_bytes([
+        block[o + 4],
+        block[o + 5],
+        block[o + 6],
+        block[o + 7],
+    ]));
+    if dc_len > limits.max_residual_bytes || ac_len > limits.max_residual_bytes {
+        return Err(VoleError::DimensionTooLarge);
+    }
+    let total = o as u64 + 8 + dc_len + ac_len;
+    if total != block.len() as u64 {
+        return Err(VoleError::NonCanonicalEncoding);
+    }
+    let dc_off = o + 8;
+    let ac_off = dc_off
+        .checked_add(dc_len as usize)
+        .ok_or(VoleError::ArithmeticOverflow)?;
+    let dc_payload = crate::rans::decode_block(&block[dc_off..ac_off], limits.max_residual_bytes)?;
+    let ac_payload = crate::rans::decode_block(&block[ac_off..], limits.max_residual_bytes)?;
+    if dc_payload.len() % 4 != 0 || ac_payload.len() % 60 != 0 {
+        return Err(VoleError::NonCanonicalEncoding);
+    }
+    let coded: usize = mask.iter().map(|b| b.count_ones() as usize).sum();
+    if dc_payload.len() / 4 != coded || ac_payload.len() / 60 != coded {
+        return Err(VoleError::NonCanonicalEncoding);
+    }
+    let dc4 = dc_payload.as_chunks::<4>().0;
+    let ac60 = ac_payload.as_chunks::<60>().0;
+    let mut block_i = 0usize;
+    let cw = i64::from(w);
+    let ch = i64::from(h);
+    for k in 0..nblocks {
+        if mask[k >> 3] & (1 << (k & 7)) == 0 {
+            continue;
+        }
+        let mut coeffs = [0i32; 16];
+        let dcb = dc4[block_i];
+        coeffs[0] =
+            crate::transform::unzigzag(u32::from_le_bytes([dcb[0], dcb[1], dcb[2], dcb[3]]));
+        let acb = ac60[block_i];
+        for j in 0..15 {
+            let z =
+                u32::from_le_bytes([acb[4 * j], acb[4 * j + 1], acb[4 * j + 2], acb[4 * j + 3]]);
+            coeffs[j + 1] = crate::transform::unzigzag(z);
+        }
+        block_i += 1;
+        let samples = crate::transform::inverse_block(&coeffs);
+        let (kxx, kyy) = (k % bx, k / bx);
+        for vy in 0..4i64 {
+            let gy = i64::try_from(kyy).unwrap_or(i64::MAX) * 4 + vy;
+            if gy < 0 || gy >= ch {
+                continue;
+            }
+            for vx in 0..4i64 {
+                let gx = i64::try_from(kxx).unwrap_or(i64::MAX) * 4 + vx;
+                if gx < 0 || gx >= cw {
+                    continue;
+                }
+                let r = samples[(vy * 4 + vx) as usize];
+                let cur = i64::from(dst.get(gx as u32, gy as u32));
+                let nv = cur + r;
+                if !(0..=255).contains(&nv) {
+                    return Err(VoleError::OutOfBounds);
+                }
+                dst.set(gx as u32, gy as u32, nv as u8);
+            }
+        }
     }
     Ok(())
 }

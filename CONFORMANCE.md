@@ -37,6 +37,10 @@ independently re-derived reference in `proof/`.
 | Phase L: affine materialization == independent incremental sampling painter (rotation / zoom / sub-pixel pan / random parameters) | PASS |
 | Phase L: Q8 30°-rotation approximation + residual == float-rendered target byte-for-byte | PASS |
 | Phase L: affine over palette-index and fill objects exact; work budget + hostile wire forms typed | PASS |
+| Phase M: transform residual roundtrip exact (random + gradient blocks; unit courts) | PASS |
+| Phase M: transform materialization == target byte-for-byte end-to-end (drift / wrap-ramp / textured) | PASS |
+| Phase M: noise stays RAW; tiny diffs never evaluate the family; oracle min-payload invariant holds | PASS |
+| Phase M: hostile kind-2 streams typed at parse (id/padding/length/truncation) and materialization (EntropyCorrupt / OutOfBounds) | PASS |
 
 ## Goldens
 

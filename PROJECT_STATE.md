@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase L sealed (see git log)
-**Current phase:** L (affine/global state) — SEALED. Next: Phase M (transform residual).
+**Current head:** Phase M sealed (see git log)
+**Current phase:** M (transform residual floor) — SEALED. Next: Phase N (procedural generators).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -105,7 +105,7 @@ it above the base with a fresh instance; repeated region content is reused by
 exact BLAKE3 identity with zero declaration bytes. Documented gates: diff ≤ ¼
 canvas, ≤ 256 rectangles, no overlay-shadowed samples; DSFB governs the
 family (Full ladder / Probe / Off). Measured: 1920×1080 localized-change
-flagship — 40 region frames with **zero whole-frame rebases** after frame 0
+Phase K: 40 region frames with **zero whole-frame rebases** after frame 0
 (26× vs raw); alternating-glyph region reuse at the 30 B floor across 35
 frames; DSFB byte-identical to the oracle at N = 0.378×; fixed-heuristic
 probe-granularity blindness measured at J 1.036; noise stays RAW (diff gate).
@@ -134,19 +134,41 @@ camera-map gap is a small edge set); affine over palette-index and fill
 objects exact; hostile wire + work-budget courts typed. Receipt + evidence:
 `docs/phase-l.md`, `evidence/campaigns/phase-l-affine-…/`.
 
+Phase M (this head): **deterministic integer transform residual floor** —
+when procedural state cannot explain a dense smooth residual, VOLE behaves
+like a conventional coder within the lossless domain (`src/transform.rs`):
+the signed residual field is partitioned into aligned 4×4 blocks and
+decorrelated by a reversible integer lifting DCT (Q8 lifting rotations for
+the −π/4 and −π/8 stages; no floating point, no quantization;
+`inverse(forward(x)) == x` for every integer block). Wire: residual block
+**kind 2** under tag 0x2a — skip mask + DC/AC zigzag coefficient streams in
+standard RAW/rANS containers; decoder inverse-transforms and **adds** the
+reconstruction (outside `0..=255` is `OutOfBounds`; unknown transform ids
+fail closed). The encoder's TRANSFORM_RESIDUAL family joins the exhaustive
+court (gate: `9k ≥ mask+64`) and the fixed-heuristic/DSFB probe (dense
+only). Measured: 1920×1080 brightness-drift flagship — **69 848 B/interval**
+vs 2 073 645 B RAW reset (29.7×) and 10 467 936 B point residual (150×),
+winners `raw×1 transform_residual×8`, all frames byte-exact; same-delta
+480×270 transform block 5 906 B vs 549 268 B point container (93×); noise
+stays RAW; tiny diffs never evaluate the family; hostile kind-2 courts
+typed at parse and materialization. Accounting fix (recorded): inline rANS
+models are a `model_bytes` sub-bucket excluded from `residual_bytes`, so the
+ten buckets sum exactly. Receipt + evidence: `docs/phase-m.md`,
+`evidence/campaigns/phase-m-transform-…/`.
+
 ## In progress
 
-(none — Phase L sealed; Phase M is next)
+(none — Phase M sealed; Phase N is next)
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase L affine/global → Phase M transform residual → Phase N procedural
-generators → Phase O representation re-optimization (`vole optimize`) →
-Phase P optional EntropyFS persistence → Phase Q native procedural ingest API
-→ Phase R procedural transport → Phase S partial materialization → Phase T
-archive profile → Phase U perceptual profile (last).
+Phase N procedural generators → Phase O representation re-optimization
+(`vole optimize`) → Phase P optional EntropyFS persistence → Phase Q native
+procedural ingest API → Phase R procedural transport → Phase S partial
+materialization → Phase T archive profile → Phase U perceptual profile
+(last).
 
 ## Failures / uncertainty
 
@@ -168,13 +190,24 @@ I); palettes must be set before they are bound, and index validity is
 enforced at materialization (Phase J); an affine placement scans the whole
 canvas, so many concurrent affine instances are capped by
 `max_affine_work` (8 full canvases) rather than per-instance raster cost
-(Phase L).
+(Phase L); the transform floor is 4×4-only with one order-0 byte model per
+DC/AC container — block-size extension and per-coefficient-position contexts
+are Phase-O surface (Phase M); the accounting fix for inline rANS models
+changes the `model_bytes`/`residual_bytes` split of streams carrying rANS
+residuals (bucket totals are unchanged; Phase M receipt); the fixed-heuristic
+scroll-by-7 court was re-measured after Phase M: the transform floor absorbs
+the dense scroll frames at ~950 B, so the probe-blind stream is now measured
+by cost (8.1×, was 11.5× by rebase pre-M; copy blindness unchanged) (Phase
+M receipt).
 
 ## Frozen (format decisions)
 
 v1 `.vole` grammar (docs/format-v1.md), materializer painter semantics
-(including palette-index resolution and the Phase-L affine source map),
-time model (explicit advances only — never implicit stepping), limits
-profile 1, integrity trailer, rANS normative constants (docs/phase-f.md). v1
-continues to *extend* per sealed phase (tags 0x21–0x30) with old streams
-re-parsed unchanged.
+(including palette-index resolution, the Phase-L affine source map, and the
+Phase-M additive transform-residual algebra), time model (explicit advances
+only — never implicit stepping), limits
+profile 1, integrity trailer, rANS normative constants (docs/phase-f.md),
+transform constants (docs/phase-m.md: kind-2 residual block grammar, lifting
+multipliers, transform id 0). v1
+continues to *extend* per sealed phase (tags 0x21–0x30, residual block kinds
+0–2) with old streams re-parsed unchanged.

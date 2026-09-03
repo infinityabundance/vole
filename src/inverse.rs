@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! RAW · FILL · UNCHANGED · EXACT_OBJECT_REF · SPARSE · COPY_RECT ·
-//! TRANSLATION · REGIONS · RANS_RESIDUAL
+//! TRANSLATION · REGIONS · RANS_RESIDUAL · TRANSFORM_RESIDUAL
 //! ```
 //!
 //! plus the composite programs those families compose into (screen-scroll +
@@ -16,7 +16,12 @@
 //! declared as an immutable object holding the target's own sub-rectangle and
 //! painted above the base by a fresh instance — so localized change never
 //! needs a whole-canvas declaration, and repeated region content is reused by
-//! exact identity with zero declaration bytes. Every candidate is a
+//! exact identity with zero declaration bytes. **Phase M added the
+//! TRANSFORM_RESIDUAL family**: when the diff is dense the residual field is
+//! coded by the normative 4×4 integer lifting DCT (block skip mask + DC/AC
+//! rANS streams; residual block kind 2) so smooth, structured deltas that no
+//! procedural family explains can still be carried by a conventional
+//! transform floor. Every candidate is a
 //! *declarative program* over the normative state model — a list of state
 //! [`Transition`]s plus a list of canvas ops — and its correctness is
 //! established by materializing its expected frame through the same normative
@@ -216,6 +221,97 @@ fn block_is_rans(block: &[u8]) -> bool {
     block.first() == Some(&rans::KIND_RANS)
 }
 
+/// Number of coded blocks in a transform residual block (mask popcount), 0 on
+/// structurally invalid input (diagnostic helper; never panics).
+fn coded_blocks(block: &[u8], w: u32, h: u32) -> usize {
+    if block.first() != Some(&rans::KIND_TSF) {
+        return 0;
+    }
+    let mlen = crate::transform::mask_len(w, h);
+    if block.len() < 2 + mlen {
+        return 0;
+    }
+    let mask = &block[2..2 + mlen];
+    mask.iter().map(|b| b.count_ones() as usize).sum()
+}
+
+/// Build a kind-2 transform residual block (Phase M) that closes the exact
+/// difference `target − base`: aligned 4×4 blocks over the canvas, one mask
+/// bit per block, and DC/AC zigzag coefficient streams (each self-describing
+/// RAW/rANS container). `None` when the canvases are identical (no residual).
+pub fn build_transform_block(base: &Canvas, target: &Canvas) -> Option<Vec<u8>> {
+    let (w, h) = (base.width(), base.height());
+    let cw = w as usize;
+    let cn = cw * h as usize;
+    let (b, t) = (base.as_slice(), target.as_slice());
+    if b == t {
+        return None;
+    }
+    let (bx, by) = crate::transform::blocks_per_axis(w, h);
+    let nblocks = bx.checked_mul(by)?;
+    let mlen = crate::transform::mask_len(w, h);
+    let mut grid = vec![0i64; cn];
+    let mut seen = vec![false; nblocks];
+    let mut coded = 0usize;
+    for i in 0..cn {
+        let d = i64::from(t[i]) - i64::from(b[i]);
+        if d != 0 {
+            grid[i] = d;
+            let k = ((i / cw) / crate::transform::BLOCK) * bx + (i % cw) / crate::transform::BLOCK;
+            if !seen[k] {
+                seen[k] = true;
+                coded += 1;
+            }
+        }
+    }
+    debug_assert!(coded > 0);
+    let mut mask = vec![0u8; mlen];
+    for (k, s) in seen.iter().enumerate() {
+        if *s {
+            mask[k >> 3] |= 1 << (k & 7);
+        }
+    }
+    let mut dc = Vec::with_capacity(4 * coded);
+    let mut ac = Vec::with_capacity(60 * coded);
+    let blk = crate::transform::BLOCK;
+    for (k, s) in seen.iter().enumerate() {
+        if !s {
+            continue;
+        }
+        let (kxx, kyy) = (k % bx, k / bx);
+        let mut samples = [0i64; 16];
+        for vy in 0..blk {
+            let gy = kyy * blk + vy;
+            if gy >= h as usize {
+                continue; // zero-padded edge row
+            }
+            for vx in 0..blk {
+                let gx = kxx * blk + vx;
+                if gx >= cw {
+                    continue; // zero-padded edge column
+                }
+                samples[vy * blk + vx] = grid[gy * cw + gx];
+            }
+        }
+        let coeffs = crate::transform::forward_block(&samples);
+        dc.extend_from_slice(&crate::transform::zigzag(coeffs[0]).to_le_bytes());
+        for c in &coeffs[1..] {
+            ac.extend_from_slice(&crate::transform::zigzag(*c).to_le_bytes());
+        }
+    }
+    let dc_c = rans::encode_block(&dc);
+    let ac_c = rans::encode_block(&ac);
+    let mut out = Vec::with_capacity(2 + mlen + 8 + dc_c.len() + ac_c.len());
+    out.push(rans::KIND_TSF);
+    out.push(crate::transform::TRANSFORM_ID_4X4);
+    out.extend_from_slice(&mask);
+    out.extend_from_slice(&(dc_c.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(ac_c.len() as u32).to_le_bytes());
+    out.extend_from_slice(&dc_c);
+    out.extend_from_slice(&ac_c);
+    Some(out)
+}
+
 // ---------------------------------------------------------------------------
 // Accounting (§31)
 // ---------------------------------------------------------------------------
@@ -235,9 +331,13 @@ pub struct RepresentationCost {
     pub checkpoint_bytes: u64,
     /// Interval envelopes + state transitions + COPY/MOVE canvas ops.
     pub transition_bytes: u64,
-    /// Per-frame residual op wire bytes (tag + length prefix + block).
+    /// Per-frame residual op payload bytes **excluding** inline entropy
+    /// models (tag + length prefix + block minus any model bytes, which are
+    /// reported in `model_bytes`; the buckets sum to the stream length
+    /// exactly).
     pub residual_bytes: u64,
-    /// Inline entropy models inside residual blocks.
+    /// Inline entropy models inside residual blocks (a sub-bucket of the
+    /// residual op payload bytes).
     pub model_bytes: u64,
     /// Persistent procedural state declarations (Phase J: the pre-checkpoint
     /// palette-table records that initialize mutable palette state; 0 in
@@ -290,6 +390,11 @@ pub fn account_stream(bytes: &[u8]) -> Result<RepresentationCost, VoleError> {
     limits.check_stream_len(bytes.len() as u64)?;
     let content_len = bytes.len() - 32;
     let mut r = ByteReader::new(&bytes[..content_len]);
+    // Header geometry (fixed offsets: magic(4)+reserved(1)+fver(2)+univ(4)+
+    // profile(1)+feature(4)+w(4)+h(4)) — needed to walk kind-2 mask lengths.
+    let header_w = u32::from_le_bytes(bytes[16..20].try_into().map_err(|_| VoleError::Truncated)?);
+    let header_h = u32::from_le_bytes(bytes[20..24].try_into().map_err(|_| VoleError::Truncated)?);
+    limits.check_canvas(header_w, header_h)?;
     let mut cost = RepresentationCost {
         total_bytes: bytes.len() as u64,
         ..RepresentationCost::default()
@@ -443,10 +548,56 @@ pub fn account_stream(bytes: &[u8]) -> Result<RepresentationCost, VoleError> {
                             let len = r.pull::<u32>()?;
                             let block = r.take(len as usize)?;
                             cost.transition_bytes += 5;
-                            cost.residual_bytes += u64::from(len);
-                            if block.first() == Some(&rans::KIND_RANS) {
-                                cost.model_bytes += rans::MODEL_SERIALIZED as u64;
+                            // Inline entropy models live inside the block bytes;
+                            // they are reported in `model_bytes`, so they are
+                            // excluded from `residual_bytes` (the buckets must
+                            // sum to the stream length exactly).
+                            let mut models = 0u64;
+                            match block.first() {
+                                Some(&rans::KIND_TSF) => {
+                                    // Phase M transform residual: mask then two
+                                    // self-describing sub-containers.
+                                    let (bx, by) =
+                                        crate::transform::blocks_per_axis(header_w, header_h);
+                                    let nblocks = bx.saturating_mul(by);
+                                    let mlen = nblocks.div_ceil(8);
+                                    let o = 2usize.saturating_add(mlen);
+                                    if block.len() >= o + 8 {
+                                        let dc_len = u64::from(u32::from_le_bytes([
+                                            block[o],
+                                            block[o + 1],
+                                            block[o + 2],
+                                            block[o + 3],
+                                        ]));
+                                        let ac_len = u64::from(u32::from_le_bytes([
+                                            block[o + 4],
+                                            block[o + 5],
+                                            block[o + 6],
+                                            block[o + 7],
+                                        ]));
+                                        let dc_off = o + 8;
+                                        if block.get(dc_off) == Some(&rans::KIND_RANS) {
+                                            models += 1;
+                                        }
+                                        let ac_off = dc_off.saturating_add(dc_len as usize);
+                                        if block.get(ac_off) == Some(&rans::KIND_RANS) {
+                                            models += 1;
+                                        }
+                                        let _ = ac_len;
+                                    }
+                                }
+                                Some(&rans::KIND_RANS)
+                                    if block.len() >= 9 + rans::MODEL_SERIALIZED =>
+                                {
+                                    // A single-container rANS payload always
+                                    // carries its inline model.
+                                    models = 1;
+                                }
+                                _ => {}
                             }
+                            let model_bytes = models * rans::MODEL_SERIALIZED as u64;
+                            cost.model_bytes += model_bytes;
+                            cost.residual_bytes += u64::from(len) - model_bytes;
                         }
                         _ => return Err(VoleError::NonCanonicalEncoding),
                     }
@@ -1065,8 +1216,8 @@ impl<'a> Encoder<'a> {
             // full-canvas object of the target's own content always reproduces
             // the target exactly (RAW guarantee), so every plan evaluates it.
             self.consider_reset(target, &mut ev, false);
-            if plan.sparse {
-                self.consider_sparse_and_residual(target, &base, &mut ev);
+            if plan.sparse || plan.transform != Mode::Off {
+                self.consider_sparse_and_residual(target, &base, &mut ev, plan.transform);
             }
             if plan.prev_diff {
                 self.consider_prev_diff(target, &base, &prev, &mut ev);
@@ -1158,7 +1309,7 @@ impl<'a> Encoder<'a> {
                 self.last_translation = None;
             }
             Plan::Residual { block } => {
-                residual_points = decode_point_count(block, &limits);
+                residual_points = decode_point_count(block, self.w, self.h, &limits);
                 emitted_cost += 5 + block.len() as u64;
                 emitted.push(Transition::Residual {
                     block: block.clone(),
@@ -1175,7 +1326,7 @@ impl<'a> Encoder<'a> {
                 }
             }
             Plan::CopyResidual { ops, block } => {
-                residual_points = decode_point_count(block, &limits);
+                residual_points = decode_point_count(block, self.w, self.h, &limits);
                 self.last_copy_ops = copy_ops_only(ops);
                 self.last_translation = None;
                 for op in ops {
@@ -1339,7 +1490,13 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn consider_sparse_and_residual(&self, target: &Canvas, base: &Canvas, ev: &mut Eval) {
+    fn consider_sparse_and_residual(
+        &self,
+        target: &Canvas,
+        base: &Canvas,
+        ev: &mut Eval,
+        transform_mode: Mode,
+    ) {
         if target.as_slice() == base.as_slice() {
             return; // unchanged covers the degenerate case
         }
@@ -1371,6 +1528,36 @@ impl<'a> Encoder<'a> {
         let mut c = Cand::new(label, Plan::Residual { block }, payload);
         c.valid = true;
         ev.consider(c);
+        // Phase M: transform-coded residual floor (kind-2 block). Evaluated
+        // only when it could beat the point-list baselines (Full) or when the
+        // diff is dense (Probe), gated deterministically; exactness is proven
+        // by construction (normative inverse) and by the end-to-end verify.
+        if transform_mode != Mode::Off {
+            let (bx, by) = crate::transform::blocks_per_axis(self.w, self.h);
+            let nblocks = bx.checked_mul(by).unwrap_or(0);
+            let mlen = nblocks.div_ceil(8) as u64;
+            let canvas = u64::from(self.w) * u64::from(self.h);
+            // A raw point list costs 9 B/point; the transform payload costs at
+            // least the mask + two container envelopes. Below that it cannot
+            // win, so it is not evaluated.
+            let possible = 9 * k >= mlen + 64;
+            let dense = k >= canvas / 16;
+            let go = match transform_mode {
+                Mode::Full => possible,
+                Mode::Probe => possible && dense,
+                Mode::Off => false,
+            };
+            if go {
+                ev.add_work(canvas.saturating_mul(2));
+                if let Some(block) = build_transform_block(base, target) {
+                    ev.add_work(16 * coded_blocks(&block, self.w, self.h) as u64);
+                    let payload = INTERVAL_ENVELOPE + 5 + block.len() as u64;
+                    let mut c = Cand::new("transform_residual", Plan::Residual { block }, payload);
+                    c.valid = true;
+                    ev.consider(c);
+                }
+            }
+        }
     }
 
     /// The unified reset candidate — the RAW sentinel. Resetting the state to
@@ -1959,15 +2146,34 @@ fn copy_ops_only(trs: &[Transition]) -> Vec<Transition> {
 }
 
 /// Number of residual points a block decodes to (0 on any structural issue).
-fn decode_point_count(block: &[u8], limits: &Limits) -> u64 {
+fn decode_point_count(block: &[u8], w: u32, h: u32, limits: &Limits) -> u64 {
     if block.len() < 9 {
         return 0;
     }
-    let len = u64::from_le_bytes(block[1..9].try_into().expect("8-byte window"));
-    if len > limits.max_residual_bytes {
-        return 0;
+    if block.first() == Some(&rans::KIND_TSF) {
+        // Transform residual: the residual closes every masked cell; report
+        // the masked cells (popcount × 16 block cells) as the point count.
+        let (bx, by) = crate::transform::blocks_per_axis(w, h);
+        let nblocks = bx.saturating_mul(by);
+        let mlen = nblocks.div_ceil(8);
+        if block.len() < 2 + mlen + 8 {
+            return 0;
+        }
+        let mask = &block[2..2 + mlen];
+        let mut coded = 0u64;
+        for k in 0..nblocks {
+            if mask[k >> 3] & (1 << (k & 7)) != 0 {
+                coded += 1;
+            }
+        }
+        coded * 16
+    } else {
+        let len = u64::from_le_bytes(block[1..9].try_into().expect("8-byte window"));
+        if len > limits.max_residual_bytes {
+            return 0;
+        }
+        len / 9
     }
-    len / 9
 }
 
 /// Compare `target` against `content` blitted at `(dx, dy)` over uniform `bg`

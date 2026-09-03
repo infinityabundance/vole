@@ -37,7 +37,10 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Bounded fixed-point affine / global state (per-instance Q8 placement; pan/zoom/rotation/camera-like as state, not rasters) | ADOPTED | Phase L: tag 0x30; 320×180 rotating-tile flagship — 81 frames as one object + one instance + one `SetAffine`/interval, exact vs an independent incremental painter; affine state 20× smaller than raw and far smaller than re-encoding the same visual frames through the raster encoder; hostile wire + work-budget courts (`tests/phase_l.rs`) |
 | Affine residual closure (`F = M(state) ⊕_ρ R` for a Q8 camera approximation) | ADOPTED | Phase L: Q8 30°-rotation approx vs a float-rendered target — the gap is a bounded edge set (<1 500 of 4 096 tile px) closed exactly by one persistent sparse correction; stream decodes byte-identical to the float target (`tests/phase_l.rs`) |
 | Affine over palette-index / fill objects | ADOPTED | Phase L: sampled index resolution through the bound palette and uniform-value fills under Q8 maps, byte-exact vs independent references (`tests/phase_l.rs`) |
-| Transform residual | PROPOSED | pending |
+| Deterministic integer transform residual floor (reversible 4×4 lifting DCT; residual block kind 2; DC/AC coefficient streams + skip mask) | ADOPTED | Phase M: 1920×1080 brightness-drift flagship — 69 848 B/interval vs 2 073 645 B RAW reset (29.7×) and 10.5 MB point residual (150×), all frames decode byte-exact; noise stays RAW; sparse gate (tiny diffs never evaluate it); hostile parse + materialization courts (`tests/phase_m.rs`, `src/transform.rs`) |
+| Transform-vs-point same-delta comparison | ADOPTED (measured) | Phase M: 480×270 dense smooth delta — transform block 5 906 B vs 549 268 B point container (93×); the floor is probe-reachable (Exhaustive == FixedHeuristic J 1.000 on drift content) |
+| Accounting sub-bucket for inline entropy models | ADOPTED | Phase M: `model_bytes` excluded from `residual_bytes` so the ten buckets sum exactly; fixes the latent double count of 512 B rANS models (recorded in the Phase M receipt) |
+| Transform residual | ADOPTED | Phase M (see rows above) |
 | Procedural generators | PROPOSED | pending |
 | Partial materialization (tile/rect) | PROPOSED | pending |
 | Resolution-independent procedural state | PROPOSED | pending |

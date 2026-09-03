@@ -450,7 +450,16 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                                 return Err(VoleError::DimensionTooLarge);
                             }
                             let block = r.take_vec(block_len as usize)?;
-                            crate::rans::check_block(&block, limits.max_residual_bytes)?;
+                            if block.first() == Some(&crate::rans::KIND_TSF) {
+                                crate::transform::check_block(
+                                    &block,
+                                    limits.max_residual_bytes,
+                                    header.width,
+                                    header.height,
+                                )?;
+                            } else {
+                                crate::rans::check_block(&block, limits.max_residual_bytes)?;
+                            }
                             Transition::Residual { block }
                         }
                         TR_SET_TRAJECTORY => {
