@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase C sealed (see git log)
-**Current phase:** C (sparse mutation) — sealed; next D.
+**Current head:** `7a14c60` (Phase C sealed)
+**Current phase:** C (sparse mutation) — sealed. Next: Phase D (2D COPY_RECT / MOVE_RECT).
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
 
 ## Completed (measured, courted, sealed)
@@ -32,14 +32,29 @@ and bounded dependency semantics; then the native entropy floor (rANS).
 
 ## Correct, decided, waiting
 
-Explicit pending ordering for the later ladder (started only after each prior
-gate passes): sparse mutation → COPY_RECT/MOVE_RECT → native rANS entropy
-floor → exhaustive inverse-proceduralization court → fixed-heuristic vs DSFB
-→ parametric trajectories → palettes → variable regions → affine/global →
-transform residual → procedural generators → representation re-optimization →
-optional EntropyFS persistence → native procedural ingest API → procedural
-transport → partial materialization → archive profile → perceptual profile
-(last).
+## Explicit ordering for the remaining ladder (each gate-passed before next)
+
+Phase D 2D COPY_RECT/MOVE_RECT → Phase F native rANS entropy floor →
+Phase G exhaustive inverse-proceduralization court → Phase H fixed-heuristic vs
+DSFB → Phase I parametric trajectories → Phase J palettes → Phase K variable
+regions → Phase L affine/global → Phase M transform residual → Phase N
+procedural generators → Phase O representation re-optimization → Phase P
+optional EntropyFS persistence → Phase Q native procedural ingest API → Phase R
+procedural transport → Phase S partial materialization → Phase T archive profile
+→ Phase U perceptual profile (last).
+
+(Phase-Plan numbering above is the master-brief lettering; the *ablation*
+letters P0–P16 of §61 fold into these gates with explicit mechanisms, e.g. P0
+RAW = our v1 RAW/object base, P4 unchanged = Phase B lane, P5 sparse = Phase C,
+P6 COPY_RECT = Phase D.)
+
+Concrete **next** step from this commit: Phase D — add a deterministic
+COPY_RECT/MOVE_RECT state transition referencing the *previous materialized
+frame* as an explicit (bounded depth) copy source, define canonical overlap
+semantics (snapshot source to a temporary to avoid aliasing), enforce clipping
+and dependency-depth limits, court a terminal/editor-scroll synthetic, add the
+noise negative control, then seal Phase D with a campaign + receipt exactly as
+Phases A–C were.
 
 ## Failures / uncertainty
 
