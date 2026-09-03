@@ -62,7 +62,12 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
 * Transitions:
   * `0x21 iid:u32 oid:u32 x:i32 y:i32` — create instance.
   * `0x22 iid:u32 x:i32 y:i32` — set instance position (absolute).
-* `|x|,|y| ≤ 2^24` ⇒ else `NonCanonicalEncoding`.
+  * `0x23 n:u32 (x:i32 y:i32 v:u8)^n` — sparse overlay patch (sorted).
+  * `0x24 sx:i32 sy:i32 w:u32 h:u32 dx:i32 dy:i32` — COPY_RECT from the prior
+    decoded frame (Phase D machinery).
+  * `0x25 sx:i32 sy:i32 w:u32 h:u32 dx:i32 dy:i32` — MOVE_RECT (Phase D).
+* `|x|,|y| ≤ 2^24`; for copy ops `w,h ≠ 0` and `w*h ≤ max_copy_area` ⇒ else a
+  typed error.
 
 ### Integrity
 

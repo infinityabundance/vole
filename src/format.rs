@@ -53,6 +53,8 @@ pub(crate) const TAG_INTERVAL: u8 = 0x04;
 pub(crate) const TR_CREATE_INSTANCE: u8 = 0x21;
 pub(crate) const TR_SET_POSITION: u8 = 0x22;
 pub(crate) const TR_PATCH_SPARSE: u8 = 0x23;
+pub(crate) const TR_COPY_RECT: u8 = 0x24;
+pub(crate) const TR_MOVE_RECT: u8 = 0x25;
 
 /// Maximum representable absolute coordinate on the wire.
 pub(crate) const MAX_COORD: i64 = 1 << 24;
@@ -349,6 +351,44 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                             }
                             Transition::PatchSparse { points }
                         }
+                        TR_COPY_RECT | TR_MOVE_RECT => {
+                            let is_copy = t2 == TR_COPY_RECT;
+                            let src_x = i64::from(r.pull::<i32>()?);
+                            let src_y = i64::from(r.pull::<i32>()?);
+                            let width = r.pull::<u32>()?;
+                            let height = r.pull::<u32>()?;
+                            let dst_x = i64::from(r.pull::<i32>()?);
+                            let dst_y = i64::from(r.pull::<i32>()?);
+                            coord_guard(src_x)?;
+                            coord_guard(src_y)?;
+                            coord_guard(dst_x)?;
+                            coord_guard(dst_y)?;
+                            if width == 0 || height == 0 {
+                                return Err(VoleError::NonCanonicalEncoding);
+                            }
+                            if u64::from(width) * u64::from(height) > limits.max_copy_area {
+                                return Err(VoleError::MaterializationBudgetExceeded);
+                            }
+                            if is_copy {
+                                Transition::CopyRect {
+                                    src_x,
+                                    src_y,
+                                    width,
+                                    height,
+                                    dst_x,
+                                    dst_y,
+                                }
+                            } else {
+                                Transition::MoveRect {
+                                    src_x,
+                                    src_y,
+                                    width,
+                                    height,
+                                    dst_x,
+                                    dst_y,
+                                }
+                            }
+                        }
                         _ => return Err(VoleError::NonCanonicalEncoding),
                     };
                     tr.apply(&mut cur)?;
@@ -521,8 +561,64 @@ fn write_transition(sink: &mut ByteSink, t: &Transition) -> Result<(), VoleError
             }
             Ok(())
         }
+        Transition::CopyRect {
+            src_x,
+            src_y,
+            width,
+            height,
+            dst_x,
+            dst_y,
+        } => write_copy(
+            sink,
+            TR_COPY_RECT,
+            *src_x,
+            *src_y,
+            *width,
+            *height,
+            *dst_x,
+            *dst_y,
+        ),
+        Transition::MoveRect {
+            src_x,
+            src_y,
+            width,
+            height,
+            dst_x,
+            dst_y,
+        } => write_copy(
+            sink,
+            TR_MOVE_RECT,
+            *src_x,
+            *src_y,
+            *width,
+            *height,
+            *dst_x,
+            *dst_y,
+        ),
         // These variants only appear in files in later v-formats; writing them
         // in a v1 file is rejected to keep the v1 grammar closed.
         _ => Err(VoleError::NonCanonicalEncoding),
     }
+}
+
+/// Common writer for COPY_RECT/MOVE_RECT geometry.
+#[allow(clippy::too_many_arguments)] // canonical geometry totals 8 ordered fields; kept inline to match the wire layout
+fn write_copy(
+    sink: &mut ByteSink,
+    tag: u8,
+    src_x: i64,
+    src_y: i64,
+    width: u32,
+    height: u32,
+    dst_x: i64,
+    dst_y: i64,
+) -> Result<(), VoleError> {
+    sink.byte(tag)?;
+    sink.push(wpos(src_x))?;
+    sink.push(wpos(src_y))?;
+    sink.push(width)?;
+    sink.push(height)?;
+    sink.push(wpos(dst_x))?;
+    sink.push(wpos(dst_y))?;
+    Ok(())
 }

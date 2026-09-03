@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** `7a14c60` (Phase C sealed)
-**Current phase:** C (sparse mutation) — sealed. Next: Phase D (2D COPY_RECT / MOVE_RECT).
+**Current head:** Phase D machinery implemented (COPY_RECT/MOVE_RECT) — court open.
+**Current phase:** D (2D COPY_RECT/MOVE_RECT) — machinery shipped; terminal court open.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
 
 ## Completed (measured, courted, sealed)
@@ -18,6 +18,16 @@ content→id reuse registry, and the unchanged-state lane; static court confirms
 
 Phase C: persistent sparse overlay + strict-sorted SPARSE patch; blink court
 materializes 65 exact frames from a 1 820 B stream (raw 14.98 MB).*
+
+Phases A–C are SEALED.
+
+Phase D (machinery IMPLEMENTED, court open): a COPY_RECT/MOVE_RECT state op
+that references the **previous decoded frame** as an explicit depth-1
+materialization dependency; snapshot-copy + clipping semantics; writer,
+parser, encoder-validator and hostile bounds (area cap); core geometry and
+precedence courts pass. The domain-winning terminal/editor-scroll court is
+gated behind a transient-patch operator (recorded, not faked) — see
+`docs/phase-d.md`.
 
 Courts: moving-rect 1920×1080, 101 frames — VOLE stores 2,692 B (state +
 transitions); raw full-frame sequence would be 209,433,600 B. Materialized

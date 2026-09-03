@@ -19,6 +19,75 @@ pub struct MaterializedFrame {
     pub canvas: Canvas,
 }
 
+/// Copy a rectangle from `src` (a fully materialized prior full frame) into
+/// `dst` (the current base frame). Canonical: iterate the declared source
+/// rectangle, reading source samples before any dst write (two distinct
+/// buffers in COPY_RECT use; caller guarantees no destructive aliasing), and
+/// clip every sample to be in-bounds for BOTH frames so the declared geometry
+/// may extend beyond the canvas harmlessly. Area bounded at parse time.
+#[allow(clippy::too_many_arguments)] // 8 ordered ints: (src x/y, w/h, dst x/y) — grouped only if a CopyGeom struct is introduced
+pub fn rect_copy(
+    dst: &mut Canvas,
+    src: &Canvas,
+    sx: i64,
+    sy: i64,
+    width: u32,
+    height: u32,
+    dx: i64,
+    dy: i64,
+) {
+    let dw = i64::from(dst.width());
+    let dh = i64::from(dst.height());
+    let sw = i64::from(src.width());
+    let sh = i64::from(src.height());
+    for si in 0..height as i64 {
+        for sj in 0..width as i64 {
+            let px = sx + sj;
+            let py = sy + si;
+            if px < 0 || py < 0 || px >= sw || py >= sh {
+                continue;
+            }
+            let qx = dx + sj;
+            let qy = dy + si;
+            if qx < 0 || qy < 0 || qx >= dw || qy >= dh {
+                continue;
+            }
+            let v = src.get(u32::try_from(px).unwrap(), u32::try_from(py).unwrap());
+            dst.set(u32::try_from(qx).unwrap(), u32::try_from(qy).unwrap(), v);
+        }
+    }
+}
+
+pub(crate) fn apply_copy(
+    dst: &mut Canvas,
+    src: &Canvas,
+    tr: &crate::transition::Transition,
+) -> Result<(), VoleError> {
+    let (sx, sy, width, height, dx, dy) = match tr {
+        crate::transition::Transition::CopyRect {
+            src_x,
+            src_y,
+            width,
+            height,
+            dst_x,
+            dst_y,
+        }
+        | crate::transition::Transition::MoveRect {
+            src_x,
+            src_y,
+            width,
+            height,
+            dst_x,
+            dst_y,
+        } => (*src_x, *src_y, *width, *height, *dst_x, *dst_y),
+        other => {
+            let _ = other;
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+    };
+    rect_copy(dst, src, sx, sy, width, height, dx, dy);
+    Ok(())
+}
 /// Materialize the canonical full frame of `state`.
 ///
 /// # Semantics (normative)

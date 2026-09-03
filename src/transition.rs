@@ -37,6 +37,32 @@ pub enum Transition {
     /// Points must be canonical sorted; each applied pixel persists until
     /// overwritten by a later sparse patch for that coordinate (Phase C).
     PatchSparse { points: Vec<(i64, i64, u8)> },
+    /// 2D copy of a canvas rectangle from the **immediately previous decoded
+    /// frame** onto this frame's base (Phase D). Snapshot-copy avoids overlap
+    /// aliasing; rectangle is clipped to the canvas; area bounded by
+    /// `Limits.max_copy_area`.
+    CopyRect {
+        /// Source top-left (previous frame).
+        src_x: i64,
+        src_y: i64,
+        /// Source rectangle extent.
+        width: u32,
+        height: u32,
+        /// Destination top-left in the current base frame.
+        dst_x: i64,
+        dst_y: i64,
+    },
+    /// 2D move of a rectangle from the previous frame onto this frame;
+    /// MOVE_RECT in Phase D is CopyRect (the natural MoveRect mask semantics
+    /// are documented as future work); validated identically on bounds.
+    MoveRect {
+        src_x: i64,
+        src_y: i64,
+        width: u32,
+        height: u32,
+        dst_x: i64,
+        dst_y: i64,
+    },
 }
 
 impl Transition {
@@ -60,6 +86,12 @@ impl Transition {
             }
             Transition::SetPosition { id, x, y } => state.set_position(*id, *x, *y),
             Transition::PatchSparse { points } => state.overlay_batch(points),
+            // Frame-referencing ops act on the decode canvas, not on the
+            // painter State, so they are no-ops here. Their bounds geometry is
+            // validated during parse (see format.rs CopyRect geometry checks)
+            // and they are only interpreted by the sequential replayer in
+            // src/decoder.rs / src/materialize::compositor.
+            Transition::CopyRect { .. } | Transition::MoveRect { .. } => Ok(()),
         }
     }
 
@@ -70,6 +102,8 @@ impl Transition {
             Transition::CreateInstance { .. } => "create_instance",
             Transition::SetPosition { .. } => "set_position",
             Transition::PatchSparse { .. } => "patch_sparse",
+            Transition::CopyRect { .. } => "copy_rect",
+            Transition::MoveRect { .. } => "move_rect",
         }
     }
 }

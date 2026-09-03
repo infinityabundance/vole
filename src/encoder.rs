@@ -77,6 +77,45 @@ fn validate_timeline(
         }
         prev_t = *t;
         for tr in trs {
+            // Frame-referencing ops carry their own geometry (they don't
+            // touch painter state, so `apply` is a no-op); validate their
+            // bounds here so an encoder can never serialize an out-of-limit
+            // rectangle.
+            if let Some((src_x, src_y, width, height, dst_x, dst_y)) = match tr {
+                Transition::CopyRect {
+                    src_x,
+                    src_y,
+                    width,
+                    height,
+                    dst_x,
+                    dst_y,
+                }
+                | Transition::MoveRect {
+                    src_x,
+                    src_y,
+                    width,
+                    height,
+                    dst_x,
+                    dst_y,
+                } => Some((*src_x, *src_y, *width, *height, *dst_x, *dst_y)),
+                _ => None,
+            } {
+                const COORD: i64 = 1 << 24;
+                if src_x.abs() > COORD
+                    || src_y.abs() > COORD
+                    || dst_x.abs() > COORD
+                    || dst_y.abs() > COORD
+                    || width == 0
+                    || height == 0
+                {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+                if u64::from(width) * u64::from(height)
+                    > crate::limits::Limits::default().max_copy_area
+                {
+                    return Err(VoleError::MaterializationBudgetExceeded);
+                }
+            }
             tr.apply(&mut st)?;
         }
     }
