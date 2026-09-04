@@ -1,0 +1,8 @@
+{
+  "commit": "496fe4d",
+  "milestone": "phase-v1-1-media-domain",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "platform": "Linux-7.2.2-1-cachyos-x86_64",
+  "command": "cargo run --release --example media_proof",
+  "profile": "release"
+}

@@ -44,6 +44,7 @@ pub mod inverse;
 pub mod limits;
 pub mod lossy;
 pub mod materialize;
+pub mod media;
 pub mod object;
 pub mod optimize;
 pub mod partial;

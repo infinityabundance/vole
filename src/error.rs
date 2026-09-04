@@ -128,6 +128,38 @@ pub enum VoleError {
     /// length, non-canonical packet order, or a packet that contradicts the
     /// already-applied prefix). The payload is a stable condition name.
     TransportFormat(&'static str),
+
+    // --- Phase V.1.1 canonical media domain (V.1 video programme) ---
+    /// A rational media time base is degenerate (zero numerator/denominator),
+    /// so no tick value has a defined duration.
+    InvalidTimeBase,
+
+    /// A time computation cannot be represented in the requested rational
+    /// domain: a rescale is inexact (the source tick grid does not divide the
+    /// target grid) or an intermediate product/offset overflows the canonical
+    /// integer domain.
+    TimeNotRepresentable,
+
+    /// A plane/layout/epoch/observation geometry disagreement: wrong plane
+    /// count, wrong plane dimensions for the declared subsampling, sample
+    /// counts inconsistent with the geometry, or an observation that does not
+    /// match its epoch's declared interpretation.
+    GeometryMismatch,
+
+    /// A canonical sample-domain violation: sample payload length does not
+    /// equal the declared geometry's tight storage, a `u16` sample carries
+    /// bits above its declared active depth, or storage width contradicts the
+    /// declared bit depth.
+    InvalidSamples,
+
+    /// A pixel layout / component code is reserved or unknown. Fail closed:
+    /// an unknown layout never gets a guessed interpretation.
+    UnsupportedPixelLayout,
+
+    /// An observation references an epoch the sequence does not declare, an
+    /// epoch id is reused, or the timeline ordering contract is violated
+    /// (presentation order requires strictly increasing PTS).
+    EpochViolation,
 }
 
 impl fmt::Display for VoleError {
@@ -200,6 +232,24 @@ impl fmt::Display for VoleError {
                 "transport packet lost: receiver expects the next sequence frame"
             ),
             Self::TransportFormat(cond) => write!(f, "transport framing error: {}", cond),
+            Self::InvalidTimeBase => write!(
+                f,
+                "rational time base is degenerate (zero numerator or denominator)"
+            ),
+            Self::TimeNotRepresentable => {
+                write!(
+                    f,
+                    "time value is not exactly representable in the target domain"
+                )
+            }
+            Self::GeometryMismatch => {
+                write!(f, "plane/layout/epoch/observation geometry disagreement")
+            }
+            Self::InvalidSamples => write!(f, "canonical sample-domain violation"),
+            Self::UnsupportedPixelLayout => {
+                write!(f, "pixel layout or component code is reserved or unknown")
+            }
+            Self::EpochViolation => write!(f, "epoch or presentation-timeline contract violated"),
         }
     }
 }

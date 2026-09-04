@@ -82,3 +82,21 @@ Per `docs/architecture.md` and ADRs, a positive result above is a *measured
 claim in the stated domain*, never a claim about arbitrary video or entropy
 elimination. Full falsification criteria are tracked for each future mechanism
 when its phase is entered.
+
+## Phase V.1 (video half) mechanism ledger
+
+| Mechanism | State | Evidence |
+|---|---|---|
+| Rational media time — `TimeBase` (`num/den` s/tick), signed `Pts`, positive `Duration`; exact checked rescaling (pairwise-cancelled i128), exact cross-base ordering, checked addition; no floating point | ADOPTED | V.1.1: standard frame-rate grid exact (23.976 … 120); 1 s == `n/d` ticks per rate; 23.976↔24-fps rescale 24000→24024 ticks; degenerate bases and overflow typed (`src/media/time.rs`, `tests/phase_v1_1.rs`) |
+| Two-clock separation — procedural state machine keeps v1 explicit `Interval` semantics; the media timeline is a declarative rational PTS→observation mapping that never changes state-machine meaning | ADOPTED (normative) | V.1.1 contract §2.2; domain types carry PTS/duration only; V.1.2 binds state ordinals to observations |
+| VFR as per-observation durations (no `frame_index/fps`) | ADOPTED | V.1.1: 29.97 VFR sequence with 1/2/3-tick durations; exact span and ordering; rational grid never rounded to ms (`tests/phase_v1_1.rs`) |
+| Canonical component-plane model — `Component` (Y/Cb/Cr/R/G/B/A/Gray/Index/Other), canonical `PixelLayout` registry, per-plane subsampling exponents | ADOPTED | V.1.1: 16 canonical layouts + packed source→canonical mapping (NV12/NV21/P010/P016/YUYV422/UYVY422/PAL8) (`src/media/layout.rs`) |
+| Normative ceil subsampling geometry `ceil(n/2^s)` per axis, courted on odd dimensions (1×1, 3×3, 1919×1079, 1921×1081) | ADOPTED | V.1.1: independent oracle sweep over every layout × dimension; chroma of 1919×1079 4:2:0 == 960×540 |
+| Bit depths 1..=16 — `u8` ≤ 8-bit, `u16` 9..=16-bit, tight LE canonical bytes, active-bit/padding discipline | ADOPTED | V.1.1: 8/9/10/12/14/16 courts; padding-bit violation refused typed; canonical byte round-trip identity (`src/media/plane.rs`) |
+| Color semantics — primaries/transfer/matrix/range/chroma location preserved exactly; `Unspecified` never guessed; BT.601/709/2020-PQ/2020-HLG signaling sets | ADOPTED | V.1.1: `src/media/color.rs`; describe() signaling strings; standard-set courts |
+| HDR static metadata — ST 2086 mastering display + CEA-861.3 content light level with declared unit bounds, preserved typed | ADOPTED | V.1.1: coordinate/luminance bound validation typed; flagship vector carries mastering + CLL side data |
+| Picture interpretation preserved, never baked — orientation, SAR (exact display aspect), field structure (no deinterlacing), bounded side-data registry (typed/opaque/unsupported) | ADOPTED | V.1.1: anamorphic interlaced portrait court (coded geometry untouched, display aspect 5/3); opaque payload bound (`src/media/meta.rs`) |
+| Epoch model — every observation binds to a `VideoEpoch` declaring the full media interpretation; declared-property changes are epoch boundaries, never silent rescales | ADOPTED | V.1.1: flagship vector transitions 10-bit 420 1919×1079 → 12-bit 444 1921×1081 mid-stream with no rescale (`src/media/epoch.rs`) |
+| Canonical video sequence validation — dense epoch ids, per-observation plane tables vs epoch, strict presentation-order PTS; hostile constructions typed | ADOPTED | V.1.1: `CanonicalVideo::new` validates; non-dense ids / unknown epochs / non-monotonic PTS / geometry mismatches all typed (`tests/phase_v1_1.rs`) |
+| Float sample sources (F16/F32) | PROPOSED | V.1.1 records the policy (exact opaque raw-bit planes, never silent quantization); implementation deferred until integer video is sealed (V.1.2+) |
+| v2 wire grammar (`docs/format-v2.md`) | PROPOSED | frozen at the end of V.1.2 per contract §2.1 |

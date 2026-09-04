@@ -1,0 +1,13 @@
+{
+  "milestone": "phase-v1-1-media-domain",
+  "phase": "V.1 (video half) — V.1.1 canonical media domain",
+  "head": "V.1.1 seal commit (see git log)",
+  "working_tree": "clean at evidence time",
+  "toolchain": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "platform": "Linux-7.2.2-1-cachyos-x86_64",
+  "command": "cargo run --release --example media_proof",
+  "profile": "release",
+  "historical_suite": "cargo test (306, dev) / cargo test --all-features (308) - 0 failures; fmt/check/clippy -D warnings clean",
+  "summary": "flagship synthetic canonical vector: epoch A 1919x1079 yuv420 10-bit bt2020/pq/bt2020ncl/limited/center at tb 1001/24000 s/tick (23.976), per-plane ceil geometry (chroma 960x540 for the odd 1919x1079 picture), observation storage 6,214,802 B (u16 LE); 24 VFR observations then an epoch transition to 1921x1081 yuv444 12-bit (12,459,606 B/obs); total canonical sample bytes 198,993,672 across 28 observations; exact rational timeline accounting (38 ticks = 19019/12000 s, preserved never rounded); HDR mastering + CLL side data preserved; every plane's canonical byte form round-trips exactly.",
+  "courts": "tests/phase_v1_1.rs (9) + src/media unit tests (20): frame-rate grid 23.976/24/25/29.97/30/50/59.94/60/100/120 exact; cross-base ordering/rescale; VFR per-observation durations; full layout registry (gray/yuv400/420/422/444/yuva420/yuva444/gbr/gbra/rgb/bgr/rgba/bgra/argb/abgr/indexed + nv12/nv21/p010/p016/yuyv422/uyvy422/pal8 source mapping) with ceil geometry oracle on 1x1/3x3/1919x1079/1921x1081; bit depths 8/9/10/12/14/16 with padding-bit discipline and LE canonical bytes; HDR metadata bounds; orientation/SAR/interlace preserved interpretation; hostile constructions typed (InvalidTimeBase, TimeNotRepresentable, GeometryMismatch, InvalidSamples, EpochViolation); deterministic sweep oracle across layouts x depths x dimensions."
+}

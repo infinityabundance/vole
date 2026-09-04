@@ -1,0 +1,18 @@
+    Finished `release` profile [optimized] target(s) in 0.01s
+     Running `target/release/examples/media_proof`
+media domain proof (synthetic canonical vectors only — no wire, no import)
+
+epoch A: 1919x1079 yuv420 10-bit (bt2020/pq/bt2020ncl/limited/center) at tb 1001/24000 s/tick
+  plane 0 Y: 1919x1079 subsample(0,0) depth 10 storage U16 = 4141202 B
+  plane 1 Cb:  960x540  subsample(1,1) depth 10 storage U16 = 1036800 B
+  plane 2 Cr:  960x540  subsample(1,1) depth 10 storage U16 = 1036800 B
+  odd-dim ceil rule: chroma of 1919x1079 is 960x540 (never floor), observation storage = 6214802 B
+
+canonical video: 28 observations over 2 epochs (A: 24 obs, B: 4 obs)
+  timeline: tb 1001/24000 s/tick, start pts 0, 28 VFR observations (durations 1/2 ticks), total span 38 ticks = 19019/12000 s exactly (not an integral number of ms — the rational grid is preserved, never rounded)
+  epoch transition at observation 24: 1919x1079 yuv420 10-bit -> 1921x1081 yuv444 12-bit (no silent rescale)
+  color preserved: bt2020/pq/bt2020ncl/limited/center ; HDR side data on epoch A: 2 typed entries
+
+canonical sample bytes across the vector: 198993672 (A: 6214802 B/obs x24, B: 12459606 B/obs x4)
+
+media proof: OK (synthetic vector + geometry/timeline/storage/color invariants) in 0.3 s

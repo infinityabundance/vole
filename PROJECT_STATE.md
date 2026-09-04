@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase V.1 (video half) — V.1.0 audit + architecture contract complete.
-**Current phase:** V.1 (Universal Procedural Video Codec — video half of the post-U research programme). V.1.0 done (audit + `docs/phase-v1-video-architecture.md`); **next: V.1.1 canonical media domain** (rational time, epochs, plane/layout registry, bit depths, subsampling, color, orientation/SAR/interlace/side data — synthetic vectors only; no foreign import yet). V.2 (procedural audio) is separate and later.
+**Current head:** Phase V.1 (video half) — V.1.1 canonical media domain SEALED.
+**Current phase:** V.1 (Universal Procedural Video Codec — video half of the post-U research programme). V.1.0 audit + V.1.1 done; **next: V.1.2 multiplane core** (generalize the sealed v1 materializer/encoder families from Gray8 to the canonical plane model — YUV444/420/RGB 8- and 10-bit first, v1 as an exact specialization — then freeze `docs/format-v2.md`). V.2 (procedural audio) is separate and later.
 **Phase order:** master brief §64 A→U sealed; post-U programme = V.1 video then V.2 audio, each executed in its own brief's subphase order (V.1: V.1.1 → V.1.23, entry-gated).
 **Format version:** v1 (`.vole`, permanent — goldens unchanged) · v2 + video universe v2 specified from V.1.1 and frozen at the end of V.1.2 (see `docs/phase-v1-video-architecture.md` §2.1).
 
@@ -353,13 +353,18 @@ surface regression-clean. Receipt + evidence: `docs/phase-u.md`,
 
 ## In progress
 
-Phase V.1 (Universal Procedural Video Codec — video half): **V.1.0 complete**
-(audit + architecture contract, `docs/phase-v1-video-architecture.md` +
-`evidence/campaigns/phase-v1-0-audit-…/`). Next concrete action: **V.1.1
-canonical media domain** — rational time primitives, epoch model, component-
-plane/layout registry, bit depths, subsampling + chroma location, color
-description, orientation/SAR/interlace/side data, exercised on synthetic
-canonical vectors.
+Phase V.1 (Universal Procedural Video Codec — video half): **V.1.0 audit +
+V.1.1 canonical media domain complete** (architecture contract
+`docs/phase-v1-video-architecture.md`; media domain `src/media/` — rational
+media time, component-plane/layout registry with normative ceil subsampling
+geometry, bit depths 1..=16 with active-bit discipline, color/HDR semantics,
+orientation/SAR/interlace/side data, epoch model + canonical video sequence
+validation; receipt `docs/phase-v1-1.md`; evidence
+`evidence/campaigns/phase-v1-1-media-domain-…/`). Next concrete action:
+**V.1.2 multiplane core** — generalize the sealed v1 materializer/encoder
+families from Gray8 to the canonical plane model (YUV444/420/RGB 8- and
+10-bit first), keep v1 behavior as an exact specialization, then freeze
+`docs/format-v2.md`.
 
 ## Correct, decided, waiting
 
@@ -515,6 +520,20 @@ multi-dimensional exactness flags. Deferred: exact v2 byte grammar (end of
 V.1.2), affine/subpixel precisions and filter tables (V.1.5/V.1.7 courts),
 native presentation backend (V.1.16, not frozen), NUT constants (V.1.3), HDR
 native presentation (post-V.1.16).
+
+Phase V.1.1 additions (media domain): the domain layer is in-memory only — no
+wire/format/CLI/decoder change, and the whole A–U surface plus every golden
+decode unchanged (306 dev / 308 all-features tests). Chroma geometry is a
+declared **ceil rule** (coded 1919×1079 4:2:0 → chroma 960×540), chosen over
+floor so every coded luma sample is covered by chroma at presentation —
+recorded, courted, normative for v2. `Unspecified` color properties stay
+unspecified (never inferred). HDR static-metadata unit conventions (0.00002
+chromaticity, 0.0001 cd/m² luminance) are declared and validated in-memory and
+become normative with the v2 wire grammar. Float sample sources (F16/F32) and
+packed-layout unpacking are V.1.2/V.1.3 scope (registry declares their
+canonical targets now). New typed errors: `InvalidTimeBase`,
+`TimeNotRepresentable`, `GeometryMismatch`, `InvalidSamples`,
+`UnsupportedPixelLayout`, `EpochViolation`.
 
 Closed by Phase O: stable residuals previously paid one-shot per frame for
 the life of a repeated difference — residual promotion now converts a run of
