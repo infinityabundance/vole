@@ -170,9 +170,16 @@ vole encode --width 1920 --height 1080 --frames 101 box.raw box.vole
 
 ## Status
 
-**Current head: Phase U sealed** — the mandated ladder **A → U is complete**;
-the post-U research programme has begun with the **V.1 video half** (V.1.0
-audit + architecture contract, `docs/phase-v1-video-architecture.md`).
+**Current head: Phase V.1 (video half) V.1.2 sealed** — the mandated ladder
+**A → U is complete**; the post-U research programme runs in its own
+subphase order. V.1.0 audit + architecture contract
+(`docs/phase-v1-video-architecture.md`), V.1.1 canonical media domain
+(`src/media/`: rational media time, layout/plane registry with normative
+ceil geometry, bit depths 1..=16, color/HDR/side data, epochs), and V.1.2
+multiplane core + frozen v2 core wire (`src/media/`: sample-domain
+`Picture`, independent per-plane programs with the v1 Gray8 specialization
+oracle, exact raster-origin ingest floor, and the frozen v2 core grammar in
+`docs/format-v2.md`) are sealed; **next is V.1.3 (foreign ingest bridge)**.
 The phase ledger, mechanism ledger, per-phase receipts, and frozen format
 decisions are authoritative and kept current:
 
@@ -193,8 +200,9 @@ only measured, courted mechanisms are.
 ## Release
 
 Published on crates.io as [`vole-video`](https://crates.io/crates/vole-video)
-(lib `vole_video`; the `vole` binary). Current: **v0.17.x — Phases A–U sealed**
-(the full mandated ladder).
+(lib `vole_video`; the `vole` binary). Current: **v0.19.0 — Phases A–U sealed
+plus V.1.0–V.1.2** (the full mandated ladder, then the V.1 video programme's
+audit, canonical media domain, and multiplane core + frozen v2 core wire).
 The `entropyfs-store` cargo feature (default OFF) links the real EntropyFS
 engine adapter; the standalone build never needs it.
 

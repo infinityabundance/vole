@@ -287,6 +287,11 @@ impl Plane {
         &self.data
     }
 
+    /// Mutable raw sample payload (internal; callers uphold canonicality).
+    pub(crate) fn data_mut(&mut self) -> &mut PlaneData {
+        &mut self.data
+    }
+
     /// Consume into parts.
     pub fn into_parts(self) -> (u32, u32, BitDepth, PlaneData) {
         (self.width, self.height, self.bit_depth, self.data)

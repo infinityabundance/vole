@@ -1,0 +1,35 @@
+   Compiling vole-video v0.18.0 (/mnt/1tb_kingston/vole)
+    Finished `release` profile [optimized] target(s) in 5.78s
+     Running `target/release/examples/multiplex_proof`
+multiplex proof: multiplane core + frozen v2 core wire (Phase V.1.2)
+
+1. multiplexed 10-bit 4:2:0 sprite timeline (24x16, chroma 12x8, 8 observations)
+   Y plane:    7 interval groups = 2 empty (unchanged lane), 4 residual, 1 replace (state sync at the static-run start)
+   Cb plane:   7 interval groups = 7 empty (never changed), 0 residual, 0 replace
+   Cr plane:   7 interval groups = 7 empty (never changed), 0 residual, 0 replace
+   sample-exact: every one of 9216 canonical sample bytes re-materializes identically through the fresh program AND its re-parse
+   wire 3204 B vs raw 9216 B across 8 observations (2.88x) — Y state (textured background + sprite box) stays committed; per-observation drift groups, with one state sync at the static-duplicate run start
+
+2. layout × depth matrix: exact floor → wire → parse → materialize
+   (5 observations per row: uniform, ramp, then 3 static duplicates)
+   layout            pl  dp   wire(B)    raw(B) raw/wire
+   gray               1   8       443      1280   2.89x
+   gray               1  10       699      2560   3.66x
+   gray               1  16       313       630   2.01x
+   yuv420             3   8       987      2880   2.92x
+   yuv420             3  10      1563      5760   3.69x
+   yuv444             3   8       771      1800   2.33x
+   yuv444             3  12       795      1920   2.42x
+   yuv422             3  10      1947      7680   3.94x
+   gbr                3   8       711      1500   2.11x
+   rgb                3  10       897      2430   2.71x
+   rgba               4   8       663       700   1.06x
+   yuva444            4   8       667       720   1.08x
+
+3. RAW negative control (yuv420 8-bit noise, 3 observations)
+   exact floor terminates at the RAW lane: wire 1434 B vs raw 864 B (1.66x, bounded overhead, no invented structure)
+
+4. Gray8 specialization container pairing (same authored 48x32 content)
+   v1 standalone .vole: 287 B   v2 Gray8 core container: 330 B   (v2 carries the epoch media descriptor; content semantics identical)
+
+multiplex proof: OK (multiplex sprite + layout/depth matrix + RAW control + Gray8 pairing) in 0.0 s

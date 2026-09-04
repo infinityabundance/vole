@@ -1,9 +1,9 @@
 # PROJECT_STATE
 
-**Current head:** Phase V.1 (video half) — V.1.1 canonical media domain SEALED.
-**Current phase:** V.1 (Universal Procedural Video Codec — video half of the post-U research programme). V.1.0 audit + V.1.1 done; **next: V.1.2 multiplane core** (generalize the sealed v1 materializer/encoder families from Gray8 to the canonical plane model — YUV444/420/RGB 8- and 10-bit first, v1 as an exact specialization — then freeze `docs/format-v2.md`). V.2 (procedural audio) is separate and later.
+**Current head:** Phase V.1 (video half) — V.1.2 multiplane core + frozen v2 core wire SEALED.
+**Current phase:** V.1 (Universal Procedural Video Codec — video half of the post-U research programme). V.1.0 audit + V.1.1 media domain + V.1.2 multiplane core done; **next: V.1.3 foreign ingest bridge** (ffprobe manifest, framehash oracle, FFmpeg subprocess runner, narrow NUT reader, canonicalizer) over the frozen v2 core container. V.2 (procedural audio) is separate and later.
 **Phase order:** master brief §64 A→U sealed; post-U programme = V.1 video then V.2 audio, each executed in its own brief's subphase order (V.1: V.1.1 → V.1.23, entry-gated).
-**Format version:** v1 (`.vole`, permanent — goldens unchanged) · v2 + video universe v2 specified from V.1.1 and frozen at the end of V.1.2 (see `docs/phase-v1-video-architecture.md` §2.1).
+**Format version:** v1 (`.vole`, permanent — goldens unchanged) · v2 + video universe v2 (header-prefix dispatch), core container grammar **frozen at the end of V.1.2** (`docs/format-v2.md`); both parse forever, neither reinterprets the other.
 
 ## Completed (measured, courted, sealed)
 
@@ -353,26 +353,40 @@ surface regression-clean. Receipt + evidence: `docs/phase-u.md`,
 
 ## In progress
 
-Phase V.1 (Universal Procedural Video Codec — video half): **V.1.0 audit +
-V.1.1 canonical media domain complete** (architecture contract
+Phase V.1 (Universal Procedural Video Codec — video half): **V.1.1 canonical
+media domain complete** (architecture contract
 `docs/phase-v1-video-architecture.md`; media domain `src/media/` — rational
 media time, component-plane/layout registry with normative ceil subsampling
 geometry, bit depths 1..=16 with active-bit discipline, color/HDR semantics,
 orientation/SAR/interlace/side data, epoch model + canonical video sequence
 validation; receipt `docs/phase-v1-1.md`; evidence
-`evidence/campaigns/phase-v1-1-media-domain-…/`). Next concrete action:
-**V.1.2 multiplane core** — generalize the sealed v1 materializer/encoder
-families from Gray8 to the canonical plane model (YUV444/420/RGB 8- and
-10-bit first), keep v1 behavior as an exact specialization, then freeze
-`docs/format-v2.md`.
+`evidence/campaigns/phase-v1-1-media-domain-…/`). **V.1.2 multiplane core
+complete and SEALED**: sample-domain `Picture`;
+independent per-plane programs (`src/media/core.rs`) generalizing the sealed
+v1 families to any plane/depth as an independent implementation — replay
+mirrors v1 exactly (state transitions, fresh state render, one-shot canvas
+ops), so the v1 Gray8 specialization oracle compares v2 depth-8 output
+byte-for-byte against the authoritative v1 decoder; exact raster-origin
+ingest floor (`encode_pictures_exact`: background / whole-plane RAW object /
+state-relative strict-sorted residual / content replacement with empty-group
+unchanged lane and static-run state sync, proven sample-for-sample); the v2
+core wire (header + media descriptor + plane blocks + BLAKE3 trailer) with
+the **frozen grammar `docs/format-v2.md`** and pinned golden digest; hostile
+typed corpus across layouts/depths. Receipt `docs/phase-v1-2.md`; evidence
+`evidence/campaigns/phase-v1-2-multiplane-core-…/`; 318 dev / 320
+all-features tests, 0 failures, v1 goldens unchanged. Next concrete action:
+**V.1.3 foreign ingest bridge** — ffprobe manifest, framehash oracle, FFmpeg
+subprocess runner, narrow NUT reader, canonicalizer over the frozen v2 core
+container.
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
 The post-U research programme runs in its own briefs' subphase order:
-V.1 video: V.1.0 audit (done) → V.1.1 canonical media domain → V.1.2 multiplane
-core → V.1.3 import bridge → V.1.4 existing-family generalization → V.1.5–V.1.10
+V.1 video: V.1.0 audit (done) → V.1.1 canonical media domain (done) → V.1.2
+multiplane core + frozen v2 core wire (done) → V.1.3 import bridge → V.1.4
+existing-family generalization → V.1.5–V.1.10
 new predictor families in ladder order → V.1.11–V.1.12 hierarchical inverse +
 DSFB → V.1.13–V.1.15 target materializer + headless direct + damage →
 V.1.16–V.1.18 surface + streaming decoder + seek → V.1.19–V.1.22 real media +

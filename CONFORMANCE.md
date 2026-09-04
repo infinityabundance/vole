@@ -77,6 +77,18 @@ independently re-derived reference in `proof/`.
 | Phase U: measured flagships — flat panel + 2-bit temporal jitter 480×270 ×17: exact 1 806 807 B → q3 270 B (6 692×, MAE 1.5, 15.9 B/frame vs 106 282.8 B/frame); recorded non-monotone bytes (q1/q2 > exact), dominated q4 row never chosen; authored control exact == q2 bytes; noise control RAW at every shift with exact proof | PASS (measured) |
 | Phase U: regression — Phase-A golden (101 full-HD frames) and every earlier-phase stream decode unchanged with bit 0x2 known; noise negative control stays RAW (procedural fraction < 0.15) | PASS |
 
+## Court status (Phase V.1 — video programme)
+
+| Court | Result |
+|---|---|
+| Phase V.1.1: frame-rate grid exact (23.976 … 120); cross-base ordering/rescale; VFR per-observation durations; layout registry with independent ceil-geometry oracle on odd dimensions; bit depths 8/9/10/12/14/16 with padding-bit discipline and LE canonical round-trips; color/HDR semantics; orientation/SAR/interlace preserved as interpretation; epoch model + canonical-video validation; hostile constructions typed | PASS |
+| Phase V.1.1: flagship synthetic HDR vector — 24 obs 10-bit BT.2020/PQ YUV420 1919×1079 at 23.976 + epoch transition to 12-bit 4:4:4 1921×1081; geometry/storage/timeline/color exact, never rounded | PASS |
+| Phase V.1.2: v1 Gray8 specialization oracle — the v2 core at depth 8 reproduces the authoritative v1 decoder byte-for-byte over a 6-frame authored scenario (fill + raster + SetPosition + sparse + COPY_RECT + residual) | PASS |
+| Phase V.1.2: authored 10-bit 4:2:0 equals an independent per-plane compositor; exact raster-origin floor proven sample-for-sample (fresh program AND re-parse) with static duplicates on the unchanged lane; noise falls to RAW with bounded overhead | PASS |
+| Phase V.1.2: v2 core wire roundtrips byte-exactly across 11 layout×depth rows (Gray 8/10/16 odd 9×7, YUV420 8/10, YUV444 8/12, GBR 8, RGB 10, RGBA 8 odd 7×5, YUVA444 8) with canonical fixpoint `write∘parse == id` | PASS |
+| Phase V.1.2: hostile typed corpus across 8 layout×depth rows (content flips ⇒ IntegrityMismatch, wrong magic/layout ⇒ typed structural errors before the digest, truncations typed, never a panic); unknown feature bits and v1-on-v2 bodies fail closed | PASS |
+| Phase V.1.2: frozen v2 grammar golden digest pinned (`a5c1fb40…6a56a80f`); programs bind to rational PTS and epoch transitions; full A–U regression clean (v1 goldens unchanged) | PASS |
+
 ## Goldens
 
 Sealed format v1 golden streams must decode forever under v1 semantics:

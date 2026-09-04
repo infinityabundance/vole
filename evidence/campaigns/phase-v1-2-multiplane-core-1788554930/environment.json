@@ -1,0 +1,8 @@
+{
+  "commit": "1b280f1 + working tree (V.1.2 unsealed at capture)",
+  "milestone": "phase-v1-2-multiplane-core",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "platform": "Linux-7.2.2-1-cachyos-x86_64",
+  "command": "cargo run --release --example multiplex_proof",
+  "profile": "release"
+}
