@@ -51,6 +51,10 @@ independently re-derived reference in `proof/`.
 | Phase P: external-declaration streams (`encode_stream_external`/`decode_with_store`) materialize byte-identical frames with payloads outside the stream; store-less decode / missing record / digest mismatch / hostile wire forms typed; old streams (feature_bits 0) re-parse unchanged | PASS |
 | Phase P: EntropyFsStore adapter (feature) — engine BlobId == VOLE content id, dedup to one blob, reopen durable, byte-exact get | PASS |
 | Phase P: standalone invariance — the full pre-Phase-P suite passes untouched (no store required for embedded streams) | PASS |
+| Phase Q: `Ingest` output byte-identical to the descriptor encoder (plain + palette paths); velocity/advance/copy/move/sparse/clear/residual round-trips exact | PASS |
+| Phase Q: §53 script format parses to the byte-identical hand-built stream and is deterministic; hostile scripts typed (`ScriptParse`) | PASS |
+| Phase Q (§55): direct-ingest and rasterize→inverse legs reproduce the same canonical raster sequence byte-for-byte on every court; flattening taxes pinned (palette rotation 180× interval, accel 37× total, affine noise rotation 49×, seeded noise 33×) | PASS |
+| Phase Q: palette state survives only in the ingest leg (`state_bytes > 0` vs 0); zero canvas geometry and unknown references fail typed at finish | PASS |
 
 ## Goldens
 

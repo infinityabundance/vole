@@ -1,0 +1,16 @@
+palette-rotate-96x96: A=9688B (interval 360B) B=74294B (interval 64987B, 743ms) exact=true winners=["raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "exact_ref", "exact_ref", "exact_ref", "exact_ref", "exact_ref"]
+palette-accent-96x96: A=1165B (interval 288B) B=10013B (interval 706B, 134ms) exact=true winners=["raw", "regions", "exact_ref", "regions", "exact_ref", "regions", "exact_ref", "regions", "exact_ref", "regions", "exact_ref", "regions", "exact_ref"]
+accel-motion-160x120: A=649B (interval 174B) B=24115B (interval 4824B, 15ms) exact=true winners=["raw", "translation", "regions", "regions", "regions", "regions", "regions", "regions", "regions", "regions", "regions"]
+affine-rotate-noise-64x64: A=310B (interval 210B) B=15246B (interval 11059B, 39ms) exact=true winners=["raw", "transform_residual", "transform_residual", "transform_residual", "unchanged", "transform_residual"]
+noise-static-64x64: A=126B (interval 26B) B=4213B (interval 26B, 17ms) exact=true winners=["raw", "unchanged", "unchanged"]
+script-accent-96x96: parsed script stream 1165B (13 frames)
+
+| content | frames | raw B | A total B | B total B | total tax | A interval B | B interval B | exact |
+|---|---|---|---|---|---|---|---|---|
+| palette rotation, every pixel changes | 13 | 119808 | 9688 | 74294 | 7.67x | 360 | 64987 (180.5x) | true |
+| palette accent strip (uniform color change) | 13 | 119808 | 1165 | 10013 | 8.59x | 288 | 706 (2.5x) | true |
+| constant-acceleration object (trajectory) | 11 | 211200 | 649 | 24115 | 37.16x | 174 | 4824 (27.7x) | true |
+| affine rotation of a noise tile (Q8) | 6 | 24576 | 310 | 15246 | 49.18x | 210 | 11059 (52.7x) | true |
+| authored seeded-noise region (static) | 3 | 12288 | 126 | 4213 | 33.44x | 26 | 26 (1.0x) | true |
+
+ingest proof: OK (5 courts)

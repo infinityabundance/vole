@@ -1,0 +1,73 @@
+{
+  "phase": "Q",
+  "semantics": "native procedural ingest API (master brief §3.1/§39) + the §53 research-harness script format + the §55 native-procedural preservation court. Ingest (src/ingest.rs): a typed session over the same descriptors the normative encoder consumes - immutable objects (fill/raster/palette-index/generator), pre-checkpoint palette tables, checkpoint instances (optionally palette-bound), and a timeline of interval groups at explicit absolute times opened by at(t). Transition helpers mirror the v1 op surface (set_position/set_velocity/advance/set_trajectory/advance_trajectories/set_affine/set_palette/patch_palette/bind_palette/copy_rect/move_rect/patch_sparse/residual/clear_instances/clear_overlay). finish() re-validates everything through encoder::encode_stream / encode_palette_stream (geometry via limits.check_canvas, duplicates, unknown object/instance/palette references, interval ordering), so an Ingest stream is byte-canonical by construction and API misuse is typed. script (src/script.rs): the deterministic text test format of §53 (canvas/background/object fill|gradient|checker|periodic|noise|raster|index/palette/instance [palette]/at + ops), research-harness only, never part of the .vole wire; parses to an Ingest. The §55 court: same authored state carried (A) by direct ingest and (B) by rasterizing the canonical sequence (normative materializer) and re-proceduralizing with the exhaustive inverse encoder; both legs must decode to the identical raster sequence byte-for-byte, and the flattening tax B/A (total and per-interval marginal) is measured, never assumed. Leg C (conventional external codecs) belongs to the external baseline harness (§57 tooling outside this repo).",
+  "courts": {
+    "palette_rotation_96x96": {
+      "content": "13 frames of a 96x96 palette-index plane (XOR class lattice, no spatial-translation symmetry); entries rotate each interval, every pixel recolorizes",
+      "a_total_bytes": 9688,
+      "b_total_bytes": 74294,
+      "total_tax": "7.67x",
+      "a_interval_bytes": 360,
+      "b_interval_bytes": 64987,
+      "interval_tax": "180.5x",
+      "raw_frames_bytes": 119808,
+      "exact": true,
+      "structural_loss": "A carries palette-table state (state_bytes>0) and the index plane (index_object_bytes>0); B has zero palette state - the semantics are flattened away"
+    },
+    "palette_accent_strip_96x96": {
+      "content": "a uniform 96x8 strip alternating between two palette entries",
+      "a_total_bytes": 1165,
+      "b_total_bytes": 10013,
+      "total_tax": "8.59x",
+      "a_interval_bytes": 288,
+      "b_interval_bytes": 706,
+      "interval_tax": "2.5x",
+      "exact": true,
+      "note": "B recovers the alternating strips as reusable region content (winners regions/exact_ref) - the visual change flattens cheaply; what is lost is the palette state itself"
+    },
+    "accel_trajectory_160x120": {
+      "content": "11 frames of a 24x16 tile with constant acceleration (authored as one Accel trajectory program)",
+      "a_total_bytes": 649,
+      "b_total_bytes": 24115,
+      "total_tax": "37.16x",
+      "a_interval_bytes": 174,
+      "b_interval_bytes": 4824,
+      "interval_tax": "27.7x",
+      "exact": true,
+      "note": "the raster encoder cannot express acceleration: it serves the motion with per-frame translation/region repairs"
+    },
+    "affine_rotate_noise_tile_64x64": {
+      "content": "6 frames of a 32x32 seeded-noise tile under Q8 quarter-turn placements",
+      "a_total_bytes": 310,
+      "b_total_bytes": 15246,
+      "total_tax": "49.18x",
+      "a_interval_bytes": 210,
+      "b_interval_bytes": 11059,
+      "interval_tax": "52.7x",
+      "exact": true,
+      "note": "rotating a noise texture permutes 1024 pixels per frame with no compact raster abstraction (winners raw/transform_residual)"
+    },
+    "seeded_noise_static_64x64": {
+      "content": "a 48x48 seeded-noise region authored as a generator program, then two static frames",
+      "a_total_bytes": 126,
+      "b_total_bytes": 4213,
+      "total_tax": "33.44x",
+      "a_interval_bytes": 26,
+      "b_interval_bytes": 26,
+      "exact": true,
+      "note": "the seed is unknowable to search (§21): B rasterizes the region and both legs then ride the unchanged lane at 13 B/frame; the tax is structural and permanent"
+    },
+    "script_accent_96x96": "the §53 script of court 2 parses to the byte-identical 1165 B stream (13 frames, canonical)"
+  },
+  "api_courts": "ingest output == descriptor-encoder output byte-for-byte (plain + palette paths); script == hand-built Ingest byte-for-byte and deterministic; velocity/advance/copy/move/sparse/clear/residual round-trips exact; misuse typed: duplicate object/instance ids, at(0), decreasing times, push without at (InvalidStatePhase), out-of-domain coordinates, empty/oversized palettes, unsorted patches, unknown object/instance references at finish, zero canvas geometry (DimensionTooLarge at finish)",
+  "script_hostile": "missing canvas, duplicate canvas, canvas after content, byte out of 0..=255, non-integer token, unknown object kind, unknown statement, at(0), decreasing intervals, duplicate object ids, raster literal underflow, unknown references at finish - all typed VoleError::ScriptParse / semantic typed errors",
+  "all_courts_pass": true,
+  "test_count": "tests/phase_q.rs (10 courts incl. 5 pinned flattening courts); full gate: cargo fmt --check, cargo check --all-targets, cargo clippy --all-targets --all-features -- -D warnings, cargo test --all-features (228 tests, 0 failures, dev and release)",
+  "notes": [
+    "No wire-format change in Phase Q: the ingest API and the script format serialize through the same normative encoder; old streams and goldens are untouched.",
+    "The flattening taxes are pinned byte-exactly in tests/phase_q.rs (the encoder is deterministic); the release receipt is examples/ingest_proof.rs output.",
+    "Structural-information loss is measured, not just byte cost: leg B of the palette courts carries zero palette state; leg A of every court keeps the authored state (palette table / trajectory program / affine placements / generator program / index plane) directly.",
+    "Synthetic small-canvas courts only: no claim about natural video; the purpose is the architecture-level demonstration that authored state persists directly and that flattening it before storage has a measured cost that grows with duration (interval marginal taxes: 180x palette rotation, 28x acceleration, 53x noise-tile rotation).",
+    "Frame-0 bases are comparable in both legs on these courts (each pays its object once); the interval marginal tax is the quantity that compounds with stream length."
+  ]
+}

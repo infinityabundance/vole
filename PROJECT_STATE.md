@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase P sealed (see git log)
-**Current phase:** P (EntropyFS persistence) — SEALED. Next: Phase Q (native procedural ingest API).
+**Current head:** Phase Q sealed (see git log)
+**Current phase:** Q (native procedural ingest API) — SEALED. Next: Phase R (procedural transport).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -228,16 +228,35 @@ not standalone and old streams (`feature_bits == 0`) re-parse unchanged.
 Receipt + evidence: `docs/phase-p.md`,
 `evidence/campaigns/phase-p-store-…/`.
 
+Phase Q (this head): the **native procedural ingest API** (§39 / §3.1,
+`src/ingest.rs`) — a typed session over the same descriptors the normative
+encoder consumes (immutable objects incl. generator programs, palette tables,
+checkpoint instances optionally palette-bound, interval timeline at explicit
+absolute times), finished through `encode_stream`/`encode_palette_stream` so
+streams are byte-canonical by construction (no wire change). Transition
+helpers cover every v1 op. The **§53 script format** (`src/script.rs`, a
+research-harness-only text format) parses to the byte-identical hand-built
+stream. The **§55 native-procedural preservation court** carries the same
+authored state (A) by direct ingest and (B) by rasterize→inverse; both legs
+decode to the identical canonical sequence. Measured flattening taxes
+(release, pinned byte-exact): palette rotation 96×96 — A 9 688 B vs B
+74 294 B (7.7× total; **180× interval**; B carries zero palette state);
+palette accent strip 1 165 vs 10 013 B (8.6×; 2.5× interval — B recovers the
+visual change as reusable regions but loses the palette semantics); accel
+trajectory 649 vs 24 115 B (37×; 28× interval); affine rotation of a noise
+tile 310 vs 15 246 B (49×; 53× interval); seeded-noise region 126 vs
+4 213 B (33×, structural — the seed is unknowable to search). Receipt +
+evidence: `docs/phase-q.md`, `evidence/campaigns/phase-q-ingest-…/`.
+
 ## In progress
 
-(none — Phase P sealed; Phase Q is next)
+(none — Phase Q sealed; Phase R is next)
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase Q
-native procedural ingest API → Phase R
+Phase R
 procedural transport → Phase S partial materialization → Phase T archive
 profile → Phase U perceptual profile (last).
 
@@ -291,6 +310,17 @@ now a *known* feature (the `feature_bits_must_be_zero` malformed court was
 re-recorded: known-bit-without-extern ⇒ NonCanonical, unknown bits ⇒
 Unsupported) (Phase P receipts).
 
+Phase Q additions: the §53 script format is harness-only (never normative);
+the §55 courts are synthetic small-canvas content (no natural-video claim) and
+frame-0 bases are comparable in both legs — the interval marginal tax (up to
+180×) is the quantity that compounds with stream length; on the accent-strip
+content B recovers the visual change as reusable regions (interval tax only
+2.5×) but still carries zero palette state (recorded honest negative for that
+content class); conventional-codec leg C and raster-domain content courts
+remain external-harness / later-court territory (Phase R/S); the ingest API
+is in-crate state authoring only — a packetized ingest *transport* is Phase R
+(Phase Q receipts).
+
 Closed by Phase O: stable residuals previously paid one-shot per frame for
 the life of a repeated difference — residual promotion now converts a run of
 identical one-shot blocks into one persistent overlay + the unchanged lane
@@ -318,3 +348,6 @@ sorted 32-byte cids, palette-snapshot kind 0xE0, `TAG_OBJECT_EXTERN 0x09`,
 continues to *extend* per sealed phase (tags 0x21–0x30, residual block kinds
 0–2, object tag 0x07, Phase-P tag 0x09 / feature bit 0x1) with old streams
 re-parsed unchanged.
+
+Phase Q introduces no wire or format change (ingest/script serialize through
+the normative encoder; documented in `docs/ingest.md`).

@@ -64,7 +64,7 @@ painter, including boundary frames under SHA-256 in `proof/`).
 See `docs/architecture.md`, `tests/court.rs`, `tests/malformed.rs`, and
 `docs/transitions.md` for the full court and hostile-input record.
 
-## Sealed phase surface (Phases A–P)
+## Sealed phase surface (Phases A–Q)
 
 Each phase is sealed only after the full gate
 (fmt/check/clippy `-D warnings`/test dev+release), hostile-input courts, an
@@ -90,6 +90,7 @@ lives in `docs/phase-*.md` + `evidence/campaigns/`.
 | N | Bounded procedural generators (gradient/checker/periodic/noise) | drifting full-HD gradient: 12 frames in **706 B** (35,245× vs raw) |
 | O | Equivalence-preserving re-optimization (`vole optimize`) | five rewrite families, each accepted only when strictly smaller **and** decode-identical; flagship 2,692 → 1,505 B |
 | P | Optional content-addressed persistence substrate (`ObjectStore`: `EmbeddedStore` + `EntropyFsStore` adapter, feature `entropyfs-store`) | cross-video exact-object + palette sharing: four videos sharing one logo store it once (unique 7 payloads vs 10 declared; dedup exact at payload level); GC closure measured; store-backed streams (`vole` extern tag) materialize byte-identical with payloads outside the file |
+| Q | Native procedural ingest API + §53 script format + the §55 preservation court | authored state persists directly (palette/trajectory/affine/generator); flattening-tax court: same rasters cost 7.7× (palette rotation), 37× (acceleration), 49× (noise-tile rotation), 33× (seeded noise) via rasterize→inverse — interval marginal up to 180× |
 
 ## Build / test gate (each sealed phase must pass)
 
@@ -100,10 +101,11 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
-## CLI (Phase A–P surface)
+## CLI (Phase A–Q surface)
 
-The store substrate itself is library-level (`vole_video::store`); the CLI
-surface is unchanged.
+The store substrate (`vole_video::store`) and the native procedural ingest API
+(`vole_video::ingest`, §53 script format in `vole_video::script`) are
+library-level; the CLI surface is unchanged.
 
 ```
 vole demo moving-rect [out.vole]
@@ -140,9 +142,8 @@ vole encode --width 1920 --height 1080 --frames 101 box.raw box.vole
 
 ## Status
 
-**Current head: Phase P sealed** (optional EntropyFS persistence substrate);
-next in the mandated ladder is **Phase Q** (native procedural ingest API),
-then R–U.
+**Current head: Phase Q sealed** (native procedural ingest API); next in the
+mandated ladder is **Phase R** (procedural transport), then S–U.
 The phase ledger, mechanism ledger, per-phase receipts, and frozen format
 decisions are authoritative and kept current:
 
@@ -163,7 +164,7 @@ only measured, courted mechanisms are.
 ## Release
 
 Published on crates.io as [`vole-video`](https://crates.io/crates/vole-video)
-(lib `vole_video`; the `vole` binary). Current: **v0.12.x — Phases A–P sealed**.
+(lib `vole_video`; the `vole` binary). Current: **v0.13.x — Phases A–Q sealed**.
 The `entropyfs-store` cargo feature (default OFF) links the real EntropyFS
 engine adapter; the standalone build never needs it.
 

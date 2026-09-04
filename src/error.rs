@@ -113,6 +113,11 @@ pub enum VoleError {
     /// mapped backend error class). The payload is a stable condition name;
     /// store errors never carry ambient OS state into the typed surface.
     StoreFailure(&'static str),
+
+    /// The research-harness procedural script (§53 / Phase Q) is malformed.
+    /// The payload is a stable condition name; script errors are typed and
+    /// deterministic and never identify content that already wrote bytes.
+    ScriptParse(&'static str),
 }
 
 impl fmt::Display for VoleError {
@@ -179,6 +184,7 @@ impl fmt::Display for VoleError {
                 )
             }
             Self::StoreFailure(cond) => write!(f, "object store failure: {}", cond),
+            Self::ScriptParse(cond) => write!(f, "procedural script error: {}", cond),
         }
     }
 }
