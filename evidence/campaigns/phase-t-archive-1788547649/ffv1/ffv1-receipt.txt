@@ -1,0 +1,6 @@
+vole bin: ./target/release/vole
+vole stream: 2692 B; raw Gray8: 209433600 B
+ffmpeg: ffmpeg version n9.0.1 Copyright (c) 2000-2026 the FFmpeg developers
+ffv1 stream: 105078 B; decode byte-identical to source raw: yes
+ffv1 encode ms: 109; ffv1 decode ms: 74
+wall seconds: 0

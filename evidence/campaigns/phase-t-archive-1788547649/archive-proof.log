@@ -1,0 +1,19 @@
+| stream | .vole B | .volea B | overhead | records | frames | build ms | structural verify ms | deep verify ms |
+|---|---|---|---|---|---|---|---|---|
+| phase-a-moving-rect | 2692 | 9768 | 362.9% | 104 | 101 | 19.50 | 0.021 | 19.173 |
+| full-hd-81f | 2172 | 7908 | 364.1% | 84 | 81 | 15.30 | 0.016 | 15.233 |
+| mixed-31f | 7888 | 3416 | 43.3% | 36 | 31 | 0.24 | 0.023 | 0.224 |
+| raster-origin-2f | 129704 | 561 | 0.4% | 5 | 2 | 0.12 | 0.074 | 0.104 |
+
+corruption localization (mixed-31f, one flipped byte per case):
+  flipped header width: -> record #0 (kind=header, offset=0, t=None)  [SELF_DESCRIPTION_MISMATCH]
+  flipped palette entry: -> record #3 (kind=palette, offset=6770, t=None)  [STRUCTURAL_MISMATCH]
+  flipped interval t=13: -> record #17 (kind=interval, offset=7205, t=Some(13))  [STRUCTURAL_MISMATCH]
+  flipped integrity trailer: -> record #35 (kind=integrity, offset=7856, t=None)  [STRUCTURAL_MISMATCH]
+
+representation equivalence: 2692 B SetPosition stream -> optimize rewrite (1225 B): all 81 frame hashes identical (golden oracle); verify reports STRUCTURAL_MISMATCH as expected (representation differs, reconstruction does not)
+
+self-description (phase-a golden): format_v1 universe=1 profile=1 features=0x0 1920x1080 gray8 frames=101 stream=2692 B digest=91b9d492e288e226d851e19a1a769d5da72ed45bc2ec1015e4bb9f71d2ccc51c
+  records=104 intervals=100 objects=1 checkpoint_digest=8394babb9d9e0433ffcf1371dac78f606070d509475873310dec6e94cab04a61
+
+archive proof: OK (4 streams)

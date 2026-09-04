@@ -64,7 +64,7 @@ painter, including boundary frames under SHA-256 in `proof/`).
 See `docs/architecture.md`, `tests/court.rs`, `tests/malformed.rs`, and
 `docs/transitions.md` for the full court and hostile-input record.
 
-## Sealed phase surface (Phases A–S)
+## Sealed phase surface (Phases A–T)
 
 Each phase is sealed only after the full gate
 (fmt/check/clippy `-D warnings`/test dev+release), hostile-input courts, an
@@ -93,6 +93,7 @@ lives in `docs/phase-*.md` + `evidence/campaigns/`.
 | Q | Native procedural ingest API + §53 script format + the §55 preservation court | authored state persists directly (palette/trajectory/affine/generator); flattening-tax court: same rasters cost 7.7× (palette rotation), 37× (acceleration), 49× (noise-tile rotation), 33× (seeded noise) via rasterize→inverse — interval marginal up to 180× |
 | R | Procedural transport (§34–§36): `[len][kind][seq][body]` packets in the five classes OBJECT/CHECKPOINT/INTERVAL/RESIDUAL/INTEGRITY; receiver plays prefixes through the **normative parser** | byte-exact reassembly of a standalone `.vole`; typed loss gaps + retransmission; bounded checkpoint replay; §33: static interval 26 B framed vs 15,360 raster samples — whole 25-frame transport 1,488 framed B < one raster frame; unchanged lane amortizes to 29 B/frame over 225 frames |
 | S | Partial materialization (§16/§37/§66): `View::Rect`/`View::Tile` demand-planned decode; `FullFrame` views replay the canonical step machinery | 1920×1080 ×41-frame court: tracking 260×140 viewport paints one level of 56,400 samples = **2.72% of the whole-frame lane**, objects touched 1, random access frame 40 = 0.068 ms vs 13.5 ms whole (198×); every view byte-equal to the whole-frame crop |
+| T | Archive profile (§67): self-describing, self-sealed `.volea` manifests — record index (byte-level corruption localization, no decode), object/checkpoint hashes, per-frame reconstruction hashes, pinned universe | corrupted bytes localize to their exact record (header / object / interval `t` / trailer); `vole optimize` rewrites keep all frame hashes identical; manifest overhead 0.4% on raster streams (362.9% on 2.7 KB procedural — measured both ends); FFV1 external harness receipt (synthetic court: VOLE 2,692 B state vs FFV1 105,078 B raster) |
 
 ## Build / test gate (each sealed phase must pass)
 
@@ -103,19 +104,22 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
-## CLI (Phase A–S surface)
+## CLI (Phase A–T surface)
 
 The store substrate (`vole_video::store`), the native procedural ingest API
 (`vole_video::ingest`, §53 script format in `vole_video::script`), the
-procedural transport layer (`vole_video::transport`, Phase R), and the partial
-view decoder (`vole_video::partial`, `View::Rect`/`Tile`, Phase S) are
-library-level; the CLI surface is unchanged.
+procedural transport layer (`vole_video::transport`, Phase R), the partial
+view decoder (`vole_video::partial`, `View::Rect`/`Tile`, Phase S), and the
+archive profile (`vole_video::archive`, `.volea` manifests, Phase T) are
+library-level. CLI additions: `vole archive` builds a manifest; `vole verify
+--archive m.volea` verifies structurally and deep against it.
 
 ```
 vole demo moving-rect [out.vole]
 vole encode --width W --height H [--frames N] in.raw out.vole
 vole decode <in.vole> [outdir]
-vole verify <in.vole>
+vole verify <in.vole> [--archive m.volea]
+vole archive <in.vole> [out.volea]
 vole optimize <in.vole> <out.vole>
 vole bench
 ```
@@ -127,6 +131,13 @@ RANS_RESIDUAL/REGIONS/TRANSFORM_RESIDUAL/GENERATOR candidates, validates
 every candidate byte-exactly, emits the
 complete-cost winner, and decode-verifies the stream end-to-end before
 writing it.
+
+`vole archive <in.vole> [out.volea]` (Phase T) builds the archive manifest
+(self-description, per-record digests, object/checkpoint hashes, per-frame
+reconstruction hashes) for a standalone stream; `vole verify --archive`
+verifies the stream against it — structural record digests localize any
+corrupted byte to its exact record without raster work, and a deep pass
+re-checks every frame's reconstruction hash (see `docs/phase-t.md`).
 
 `vole optimize <in.vole> <out.vole>` (Phase O) rewrites a decoded stream by
 bounded, equivalence-preserving families — velocity/trajectory collapse,
@@ -146,8 +157,8 @@ vole encode --width 1920 --height 1080 --frames 101 box.raw box.vole
 
 ## Status
 
-**Current head: Phase S sealed** (partial materialization); next in the
-mandated ladder is **Phase T** (archive profile), then U.
+**Current head: Phase T sealed** (archive profile); the final phase in the
+mandated ladder is **Phase U** (perceptual profile).
 The phase ledger, mechanism ledger, per-phase receipts, and frozen format
 decisions are authoritative and kept current:
 
@@ -157,7 +168,7 @@ CONFORMANCE.md             per-phase conformance rows + goldens
 SECURITY.md / SPEC.md      limits, hostile-input contract, universe v1
 
 docs/empirical-status.md   mechanism ledger (ADOPTED / RECORDED / PROPOSED / …)
-docs/phase-*.md           sealed phase receipts (a–s)
+docs/phase-*.md           sealed phase receipts (a–t)
 docs/architecture.md       format-v1, transitions, residuals, accounting, …
 evidence/campaigns/        timestamped, reproducible evidence (never overwritten)
 ```
@@ -168,7 +179,7 @@ only measured, courted mechanisms are.
 ## Release
 
 Published on crates.io as [`vole-video`](https://crates.io/crates/vole-video)
-(lib `vole_video`; the `vole` binary). Current: **v0.15.x — Phases A–S sealed**.
+(lib `vole_video`; the `vole` binary). Current: **v0.16.x — Phases A–T sealed**.
 The `entropyfs-store` cargo feature (default OFF) links the real EntropyFS
 engine adapter; the standalone build never needs it.
 

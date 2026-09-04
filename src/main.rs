@@ -5,7 +5,8 @@
 //! ```text
 //! vole demo moving-rect [out.vole]
 //! vole decode <in.vole> [outdir]
-//! vole verify <in.vole>
+//! vole verify <in.vole> [--archive m.volea]
+//! vole archive <in.vole> [out.volea]
 //! vole optimize <in.vole> <out.vole>
 //! vole bench
 //! ```
@@ -22,12 +23,13 @@ fn main() -> Result<(), VoleError> {
         Some("encode") => cmd_encode(a),
         Some("decode") => cmd_decode(a),
         Some("verify") => cmd_verify(a),
+        Some("archive") => cmd_archive(a),
         Some("optimize") => cmd_optimize(a),
         Some("bench") => cmd_bench(),
         Some("statics") => cmd_statics(),
         other => {
             eprintln!("vole: unknown or missing subcommand: {:?}", other);
-            eprintln!("usage: vole <demo|encode|decode|verify|optimize|bench|statics> ...");
+            eprintln!("usage: vole <demo|encode|decode|verify|archive|optimize|bench|statics> ...");
             if other.is_some() {
                 Err(VoleError::ApiConstraint("unknown subcommand"))
             } else {
@@ -199,9 +201,21 @@ fn cmd_optimize(mut a: impl Iterator<Item = String>) -> Result<(), VoleError> {
 }
 
 fn cmd_verify(mut a: impl Iterator<Item = String>) -> Result<(), VoleError> {
-    let infile = a
-        .next()
-        .ok_or(VoleError::ApiConstraint("verify needs input"))?;
+    let mut infile: Option<String> = None;
+    let mut archive_path: Option<String> = None;
+    while let Some(s) = a.next() {
+        match s.as_str() {
+            "--archive" => archive_path = a.next(),
+            other => {
+                if infile.is_none() {
+                    infile = Some(other.to_string());
+                } else {
+                    return Err(VoleError::ApiConstraint("verify takes one input"));
+                }
+            }
+        }
+    }
+    let infile = infile.ok_or(VoleError::ApiConstraint("verify needs input"))?;
     let bytes = std::fs::read(&infile).map_err(|_| VoleError::ApiConstraint("read failed"))?;
     let parsed = decoder::decode_bytes(&bytes)?;
     let frames = decoder::materialize_all(&parsed)?;
@@ -212,7 +226,111 @@ fn cmd_verify(mut a: impl Iterator<Item = String>) -> Result<(), VoleError> {
         frames.len(),
         bytes.len()
     );
+    if let Some(mp) = archive_path {
+        let mbytes =
+            std::fs::read(&mp).map_err(|_| VoleError::ApiConstraint("read manifest failed"))?;
+        let manifest = vole_video::archive::decode(&mbytes)?;
+        let report = vole_video::archive::verify(&bytes, &manifest, true)?;
+        println!(
+            "archive verify {}: self_desc={} structural={} records_checked={} objects={} deep_frames={} first_frame_div={:?}",
+            archive_status(&report),
+            report.self_description_ok,
+            report.structural_ok,
+            report.records_checked,
+            report.objects_ok,
+            report.frames_checked,
+            report.first_frame_divergence,
+        );
+        if let Some(i) = report.first_bad_record {
+            let rec = &manifest.records[i as usize];
+            println!(
+                "  first bad record #{i}: kind={} offset={} length={} t={:?} id={:?}",
+                rec.kind.label(),
+                rec.offset,
+                rec.length,
+                rec.t,
+                rec.id
+            );
+        }
+        if let Some(field) = report.mismatch_field {
+            println!("  self-description mismatch: {}", field.label());
+        }
+        if report.status != vole_video::archive::VerifyStatus::Complete {
+            return Err(VoleError::ApiConstraint(
+                "archive verification failed (see report)",
+            ));
+        }
+    }
     Ok(())
+}
+
+fn archive_status(report: &vole_video::archive::VerifyReport) -> &'static str {
+    match report.status {
+        vole_video::archive::VerifyStatus::Complete => "COMPLETE",
+        vole_video::archive::VerifyStatus::SelfDescriptionMismatch => "SELF_DESCRIPTION_MISMATCH",
+        vole_video::archive::VerifyStatus::StructuralMismatch => "STRUCTURAL_MISMATCH",
+        vole_video::archive::VerifyStatus::StreamDigestMismatch => "STREAM_DIGEST_MISMATCH",
+        vole_video::archive::VerifyStatus::ObjectMismatch => "OBJECT_MISMATCH",
+        vole_video::archive::VerifyStatus::FrameDivergence => "FRAME_DIVERGENCE",
+    }
+}
+
+fn cmd_archive(mut a: impl Iterator<Item = String>) -> Result<(), VoleError> {
+    // vole archive <in.vole> [out.volea]
+    let infile = a
+        .next()
+        .ok_or(VoleError::ApiConstraint("archive needs an input .vole"))?;
+    let outfile = a.next().unwrap_or_else(|| format!("{infile}.volea"));
+    let bytes = std::fs::read(&infile).map_err(|_| VoleError::ApiConstraint("read failed"))?;
+    let manifest = vole_video::archive::ArchiveManifest::build(&bytes)?;
+    let wire = vole_video::archive::encode(&manifest)?;
+    std::fs::write(&outfile, &wire).map_err(|_| VoleError::ApiConstraint("write failed"))?;
+    let sd = &manifest.stream;
+    let overhead = if bytes.is_empty() {
+        0.0
+    } else {
+        wire.len() as f64 * 100.0 / bytes.len() as f64
+    };
+    println!(
+        "vole archive: {} -> {} ({} bytes + {} B manifest, {overhead:.1}% overhead)",
+        infile,
+        outfile,
+        bytes.len(),
+        wire.len()
+    );
+    println!(
+        "  self-description: format_v{} universe={} profile={} features={:#x} {}x{} gray8 frames={} stream_digest={}",
+        sd.format_version,
+        sd.universe_id,
+        sd.limit_profile,
+        sd.feature_bits,
+        sd.width,
+        sd.height,
+        sd.frame_count,
+        hex_prefix(&sd.stream_digest)
+    );
+    println!(
+        "  records={} (intervals={}) objects={} frame_hashes={} checkpoint_digest={}",
+        manifest.records.len(),
+        manifest
+            .records
+            .iter()
+            .filter(|r| r.kind == vole_video::archive::RecordKind::Interval)
+            .count(),
+        manifest.objects.len(),
+        manifest.frame_hashes.len(),
+        hex_prefix(&manifest.checkpoint_digest)
+    );
+    Ok(())
+}
+
+fn hex_prefix(d: &[u8; 32]) -> String {
+    use std::fmt::Write as _;
+    let mut s = String::with_capacity(16);
+    for b in &d[..8] {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
 }
 
 fn cmd_statics() -> Result<(), VoleError> {

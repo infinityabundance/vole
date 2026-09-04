@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase S sealed (see git log)
-**Current phase:** S (partial materialization) — SEALED. Next: Phase T (archive profile).
+**Current head:** Phase T sealed (see git log)
+**Current phase:** T (archive profile) — SEALED. Next: Phase U (perceptual profile, LAST).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -300,16 +300,42 @@ byte-equal to the crop; hostile geometry/index/residual forms typed; no wire
 change. Receipt + evidence: `docs/phase-s.md`,
 `evidence/campaigns/phase-s-partial-…/`.
 
+Phase T (this head): the **archive profile** (§67 / Phase-T block of §64,
+`src/archive.rs`) — a standalone `.vole` stream plus a self-describing,
+self-authenticating `.volea` manifest (magic `VOLEARC1`, schema v1, trailing
+BLAKE3 self-seal; never part of the `.vole` grammar). The manifest carries
+self-description (format/universe/profile/features/pixel/canvas/frames/stream
+digest), a per-record index (header, object/palette decls, checkpoint, each
+interval group, integrity trailer: kind, offset, length, BLAKE3 digest, decl
+id, interval `t`), object content identities, the checkpoint-prefix hash, and
+per-frame canonical reconstruction hashes. Verification is layered and
+decode-independent until needed: raw-header self-description → record digests
+(byte-level corruption localization, no raster work) → decode + object
+identities → optional deep frame-hash pass (one decode pass, early exit). A
+corrupted stream is reported with its first bad record (kind/offset/t);
+grammar-breaking corruption is typed; the manifest itself is hostile input
+(bounded counts, self-seal, schema pinning). Long-term universe pinning:
+forged/future-schema manifests fail closed. Measured: manifest overhead
+scales with records + frame hashes, not raster bytes — 362.9% on a 2 692 B
+procedural stream, **0.4% on a 129 704 B raster-origin stream**; structural
+verify 0.014–0.071 ms; deep verify = one decode pass (19.3 ms for 101 full-HD
+frames); optimize rewrite (2 692 → 1 225 B) reports StructuralMismatch while
+all frame hashes are identical; phase-A golden archives + deep-verifies
+unchanged. FFV1 comparison is an external harness (`corpus/ffv1-compare.sh`,
+§57): on the phase-A court VOLE 2 692 B (state) vs FFV1 105 078 B (raster,
+byte-verified roundtrip) — synthetic court only, no general claim. Receipt +
+evidence: `docs/phase-t.md`,
+`evidence/campaigns/phase-t-archive-…/`.
+
 ## In progress
 
-(none — Phase S sealed; Phase T is next)
+(none — Phase T sealed; Phase U is the final phase)
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase S partial materialization → Phase T archive
-profile → Phase U perceptual profile (last).
+Phase U perceptual profile (last).
 
 ## Failures / uncertainty
 
@@ -400,6 +426,18 @@ no natural-video or universal-speedup claim (§72), and §66 direct scanout
 remains a hypothesis whose prerequisite (correct, measured partial
 materialization) is this phase.
 
+Phase T additions: the archive profile is standalone-only (store-backed
+streams refuse archiving typed; their records still scan); structural
+verification is representation-level (record digests imply the checkpoint and
+whole-stream digests, which are reported as independent signals); manifest
+overhead on tiny procedural streams is large and on raster-dominated streams
+negligible — both measured, never zeroed; grammar-breaking corruption is a
+typed error while content corruption localizes to its exact record; the FFV1
+comparison is an external non-normative baseline per §57 (recorded with a
+receipt) and the phase makes no compression claim against conventional
+codecs; deep verification costs exactly one decode pass (frame hashes are the
+§67 reconstruction oracle across representations and future decoders).
+
 Closed by Phase O: stable residuals previously paid one-shot per frame for
 the life of a repeated difference — residual promotion now converts a run of
 identical one-shot blocks into one persistent overlay + the unchanged lane
@@ -428,10 +466,13 @@ sorted 32-byte cids, palette-snapshot kind 0xE0, `TAG_OBJECT_EXTERN 0x09`,
 kind tags HEADER 0x00 / OBJECT 0x01 / PALETTE 0x02 / CHECKPOINT 0x03 /
 INTERVAL 0x04 / INTEGRITY 0x7E, dense seq from 0, emission order `HEADER
 OBJECT* PALETTE* CHECKPOINT INTERVAL* INTEGRITY`, payloads == v1 record
-bytes) — a framing layer over the standalone stream; the `.vole` format
-itself is unchanged. Phase S introduces no wire or format change (views are
-requests, not stream syntax — documented in `docs/materialization.md` /
-`docs/phase-s.md`). v1
+bytes) — a framing layer over the standalone stream. Phase S introduces no
+wire or format change (views are requests, not stream syntax — documented in
+`docs/materialization.md` /
+`docs/phase-s.md`). Phase T archive-manifest constants
+(docs/phase-t.md: sidecar magic "VOLEARC1", schema version 1, canonical
+binary layout with bounded counts and a trailing BLAKE3 self-seal) — a
+sidecar, never part of the `.vole` grammar; v1 goldens unchanged. v1
 continues to *extend* per sealed phase (tags 0x21–0x30, residual block kinds
 0–2, object tag 0x07, Phase-P tag 0x09 / feature bit 0x1) with old streams
 re-parsed unchanged.

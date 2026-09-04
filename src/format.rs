@@ -119,8 +119,23 @@ pub struct Header {
 impl Header {
     /// Feature bits carried by the stream (all mandatory; unknown bits already
     /// failed the header read).
-    pub(crate) fn feature_bits(&self) -> u32 {
+    pub fn feature_bits(&self) -> u32 {
         self.feature_bits
+    }
+
+    /// Format version carried by the file (`FORMAT_VERSION` for v1).
+    pub fn format_version(&self) -> u16 {
+        self.format_version
+    }
+
+    /// Universe binding declared by the file (`UNIVERSE_V1` for v1).
+    pub fn universe_id(&self) -> u32 {
+        self.universe_id
+    }
+
+    /// Limits profile declared by the file (`LIMIT_PROFILE_V1` for v1).
+    pub fn limit_profile(&self) -> u8 {
+        self.limit_profile
     }
 }
 

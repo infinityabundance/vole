@@ -26,6 +26,7 @@
 // courts until the public surfacing stabilizes.)
 
 pub mod affine;
+pub mod archive;
 pub mod checked;
 pub mod checkpoint;
 pub mod collapse;

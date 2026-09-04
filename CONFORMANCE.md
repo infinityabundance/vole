@@ -64,6 +64,11 @@ independently re-derived reference in `proof/`.
 | Phase S: tile grids partition frames exactly; decoder/state-level view APIs agree with `Decoder::materialize` crops; stats internally consistent (painted == base+copy+residual; residual writes only in-region) | PASS |
 | Phase S (audit-scope): index poison inside the view → `OutOfBounds` identical to whole-frame decode; outside the view → clean samples (documented sampling contract); unsorted residual errors identical for any view of its frame; out-of-range frames/views and zero-size geometry typed | PASS |
 | Phase S (work): 1920×1080 41-frame viewport court — one level painted per decode (56 400 samples vs ≥ 2 073 600 whole-frame), objects touched 1, 2.72% of the whole-frame lane, peak raster 36 400 samples; release random access frame 40 = 0.068 ms vs 13.5 ms whole (198×); copy-chain demand exact and bounded | PASS |
+| Phase T: record index tiles every stream shape exactly (header + decls + checkpoint + intervals + integrity; interval `t` == parsed timeline; deterministic digests); store-backed extern streams scan but refuse archiving typed | PASS |
+| Phase T: manifest wire canonical + self-authenticating (any flip ⇒ IntegrityMismatch, truncation typed, hostile counts bounded); schema pinning (v2 ⇒ UnsupportedFeature, bad magic ⇒ BadMagic); golden phase-A file archives and deep-verifies 101/101 frames | PASS |
+| Phase T: layered verification — pristine streams Complete (structural + objects + checkpoint + 101/101 deep frame hashes); one flipped byte localizes to its exact record (header / object decl / interval t / integrity trailer); grammar-breaking corruption is a typed error, never a panic | PASS |
+| Phase T: representation equivalence — `vole optimize` rewrite reports StructuralMismatch while every frame hash is identical (reconstruction oracle); forged pinned universe ⇒ SelfDescriptionMismatch(Universe); archive verification orthogonal to partial views | PASS |
+| Phase T (FFV1 external harness): FFmpeg FFV1 lossless roundtrip byte-verified on the phase-A court with a full receipt (sizes, times, environment); VOLE 2 692 B procedural vs FFV1 105 078 B raster on that synthetic court — no general claim | PASS (harness, external) |
 
 ## Goldens
 
