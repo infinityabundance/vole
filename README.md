@@ -1,7 +1,7 @@
 # VOLE — Video Object Layer Engine
 
 <p align="center">
-  <img src="assets/vole.png" alt="VOLE logo">
+  <img src="assets/vole.png" alt="VOLE logo" width="313">
 </p>
 
 > de Beer, R. (2026). VOLE: Procedural Video Storage and Transport by
