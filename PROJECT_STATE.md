@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase Q sealed (see git log)
-**Current phase:** Q (native procedural ingest API) — SEALED. Next: Phase R (procedural transport).
+**Current head:** Phase R sealed (see git log)
+**Current phase:** R (procedural transport) — SEALED. Next: Phase S (partial materialization).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -248,16 +248,43 @@ tile 310 vs 15 246 B (49×; 53× interval); seeded-noise region 126 vs
 4 213 B (33×, structural — the seed is unknowable to search). Receipt +
 evidence: `docs/phase-q.md`, `evidence/campaigns/phase-q-ingest-…/`.
 
+Phase R (this head): **procedural transport** (§34/§35/§36, `src/transport.rs`)
+— a standalone `.vole` stream packetized into the five transport classes
+**OBJECT CHECKPOINT TRANSITION(INTERVAL) RESIDUAL INTEGRITY** as
+`[len:u32][kind:u8][seq:u64][body]` frames (13 B/packet overhead; six kind
+tags 0x00–0x04/0x7E; canonical emission order `HEADER OBJECT* PALETTE*
+CHECKPOINT INTERVAL* INTEGRITY`). Payloads are the byte-exact v1 records
+(shared `format::*_bytes` helpers), so transport is framing/ordering only:
+the receiver rebuilds the canonical prefix and plays it through the
+**normative parser** (`frames_so_far` decodes via `decode_bytes` +
+`materialize_all`) — the materializer stays authoritative, no duplicated
+state machine. Loss is a typed `TransportGap`; `encode_from(seq)`
+retransmits from the gap; a receiver that fell behind rolls back
+(`reset_to_checkpoint`, declarations kept) and replays forward, bounded by
+`max_transition_replay`/`max_checkpoint_distance` exactly like standalone
+decode. Integrity is the standalone BLAKE3 trailer (`verify`/`reassemble`:
+byte-exact reassembly for canonical sources, decode-identical for all).
+Store-backed (external-object) streams are refused typed — recorded boundary.
+Measured on the deterministic 25-frame authored court: reassembly byte-exact;
+incremental playback monotone 2…25 frames, each prefix byte-equal to the
+offline decode; §33 interval lane tracks structure (static 26 B framed, one
+`SetPosition` 39 B, one palette patch 37 B, one new instance 43 B; 24-interval
+lane 756 B < half of one 15 360-sample raster frame; whole 25-frame transport
+1 488 framed B < one raster frame); unchanged-lane amortization **29 B/frame**
+framed over 225 frames incl. one-time declarations (§18 — measured, never
+zeroed); corruption courts typed (payload flip → typed feed error, digest
+flip → verify false). Receipt + evidence: `docs/phase-r.md`,
+`evidence/campaigns/phase-r-transport-…/`.
+
 ## In progress
 
-(none — Phase Q sealed; Phase R is next)
+(none — Phase R sealed; Phase S is next)
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase R
-procedural transport → Phase S partial materialization → Phase T archive
+Phase S partial materialization → Phase T archive
 profile → Phase U perceptual profile (last).
 
 ## Failures / uncertainty
@@ -321,6 +348,17 @@ remain external-harness / later-court territory (Phase R/S); the ingest API
 is in-crate state authoring only — a packetized ingest *transport* is Phase R
 (Phase Q receipts).
 
+Phase R additions: transport packetizes *standalone* v1 streams only —
+multi-checkpoint cadence, `OBJECT` re-sync, and transport of store-backed
+(external-object) streams are recorded open surface (the store substrate is
+the Phase-P answer for those); the 13 B/packet framing overhead and the
+one-time declaration/checkpoint cost dominate short streams, which is why the
+§33 unchanged-lane amortization (29 B/frame at 225 frames) is measured over a
+long tail, never zeroed (§18); corruption of an interval time byte surfaces as
+a typed non-consecutive-interval error at feed, while a semantically
+parseable flip is caught by the integrity digest — both bounded; synthetic
+small-canvas courts only, no natural-video claim (§72).
+
 Closed by Phase O: stable residuals previously paid one-shot per frame for
 the life of a repeated difference — residual promotion now converts a run of
 identical one-shot blocks into one persistent overlay + the unchanged lane
@@ -344,7 +382,13 @@ external-declaration constants (docs/phase-p.md: store header "VSTO"+1,
 log record framing [cid 32][len u64][payload], 40 B/record, root files of
 sorted 32-byte cids, palette-snapshot kind 0xE0, `TAG_OBJECT_EXTERN 0x09`,
 `FEAT_EXTERNAL_OBJECTS 0x1`, canonical record grammar parsed by
-`Object::from_canonical_record`). v1
+`Object::from_canonical_record`). Phase-R transport framing constants
+(docs/transport.md: `[len:u32][kind:u8][seq:u64][body]`, len = 9 + body.len(),
+kind tags HEADER 0x00 / OBJECT 0x01 / PALETTE 0x02 / CHECKPOINT 0x03 /
+INTERVAL 0x04 / INTEGRITY 0x7E, dense seq from 0, emission order `HEADER
+OBJECT* PALETTE* CHECKPOINT INTERVAL* INTEGRITY`, payloads == v1 record
+bytes) — a framing layer over the standalone stream; the `.vole` format
+itself is unchanged. v1
 continues to *extend* per sealed phase (tags 0x21–0x30, residual block kinds
 0–2, object tag 0x07, Phase-P tag 0x09 / feature bit 0x1) with old streams
 re-parsed unchanged.

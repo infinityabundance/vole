@@ -55,6 +55,11 @@ independently re-derived reference in `proof/`.
 | Phase Q: §53 script format parses to the byte-identical hand-built stream and is deterministic; hostile scripts typed (`ScriptParse`) | PASS |
 | Phase Q (§55): direct-ingest and rasterize→inverse legs reproduce the same canonical raster sequence byte-for-byte on every court; flattening taxes pinned (palette rotation 180× interval, accel 37× total, affine noise rotation 49×, seeded noise 33×) | PASS |
 | Phase Q: palette state survives only in the ingest leg (`state_bytes > 0` vs 0); zero canvas geometry and unknown references fail typed at finish | PASS |
+| Phase R: transport packet payloads are byte-identical to the standalone v1 records; a fresh receiver reassembles the exact source bytes and decodes identical frames; integrity verifies | PASS |
+| Phase R: incremental playback through the normative parser — frame 0 at the checkpoint, one further frame per applied interval, every prefix byte-equal to the offline full-stream decode | PASS |
+| Phase R: packet loss is a typed `TransportGap` with nothing applied; retransmission from the gap recovers the exact stream; checkpoint rollback replays within the v1 envelope (measured 24 intervals ≤ 1 000 000 bound) | PASS |
+| Phase R: hostile transport forms typed — truncated frame, bad length, unknown kind, header-not-first, interval-before-checkpoint, declaration-after-checkpoint, duplicate checkpoint, non-consecutive interval, duplicate/short integrity, store-backed stream refused; corruption courts bounded (payload flip → typed feed error, digest flip → verify false) | PASS |
+| Phase R (§33): per-interval bytes track structural events on the deterministic 25-frame court (static 26 B framed → one palette patch 37 B → one new instance 43 B; 24-interval lane 756 B < half of one raster frame; whole transport 1 488 framed B < one raster frame); unchanged-lane amortization 29 B/frame over 225 frames — measured, never zeroed | PASS |
 
 ## Goldens
 

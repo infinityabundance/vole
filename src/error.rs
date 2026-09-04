@@ -118,6 +118,16 @@ pub enum VoleError {
     /// The payload is a stable condition name; script errors are typed and
     /// deterministic and never identify content that already wrote bytes.
     ScriptParse(&'static str),
+
+    /// A transport frame arrived out of sequence: a packet was lost between
+    /// the transmitter and this receiver. Recovery re-feeds from the gap
+    /// (the receiver reports the expected sequence via its accessors).
+    TransportGap,
+
+    /// The transport framing layer rejected a frame (unknown kind, malformed
+    /// length, non-canonical packet order, or a packet that contradicts the
+    /// already-applied prefix). The payload is a stable condition name.
+    TransportFormat(&'static str),
 }
 
 impl fmt::Display for VoleError {
@@ -185,6 +195,11 @@ impl fmt::Display for VoleError {
             }
             Self::StoreFailure(cond) => write!(f, "object store failure: {}", cond),
             Self::ScriptParse(cond) => write!(f, "procedural script error: {}", cond),
+            Self::TransportGap => write!(
+                f,
+                "transport packet lost: receiver expects the next sequence frame"
+            ),
+            Self::TransportFormat(cond) => write!(f, "transport framing error: {}", cond),
         }
     }
 }

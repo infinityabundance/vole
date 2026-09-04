@@ -64,7 +64,7 @@ painter, including boundary frames under SHA-256 in `proof/`).
 See `docs/architecture.md`, `tests/court.rs`, `tests/malformed.rs`, and
 `docs/transitions.md` for the full court and hostile-input record.
 
-## Sealed phase surface (Phases A–Q)
+## Sealed phase surface (Phases A–R)
 
 Each phase is sealed only after the full gate
 (fmt/check/clippy `-D warnings`/test dev+release), hostile-input courts, an
@@ -91,6 +91,7 @@ lives in `docs/phase-*.md` + `evidence/campaigns/`.
 | O | Equivalence-preserving re-optimization (`vole optimize`) | five rewrite families, each accepted only when strictly smaller **and** decode-identical; flagship 2,692 → 1,505 B |
 | P | Optional content-addressed persistence substrate (`ObjectStore`: `EmbeddedStore` + `EntropyFsStore` adapter, feature `entropyfs-store`) | cross-video exact-object + palette sharing: four videos sharing one logo store it once (unique 7 payloads vs 10 declared; dedup exact at payload level); GC closure measured; store-backed streams (`vole` extern tag) materialize byte-identical with payloads outside the file |
 | Q | Native procedural ingest API + §53 script format + the §55 preservation court | authored state persists directly (palette/trajectory/affine/generator); flattening-tax court: same rasters cost 7.7× (palette rotation), 37× (acceleration), 49× (noise-tile rotation), 33× (seeded noise) via rasterize→inverse — interval marginal up to 180× |
+| R | Procedural transport (§34–§36): `[len][kind][seq][body]` packets in the five classes OBJECT/CHECKPOINT/INTERVAL/RESIDUAL/INTEGRITY; receiver plays prefixes through the **normative parser** | byte-exact reassembly of a standalone `.vole`; typed loss gaps + retransmission; bounded checkpoint replay; §33: static interval 26 B framed vs 15,360 raster samples — whole 25-frame transport 1,488 framed B < one raster frame; unchanged lane amortizes to 29 B/frame over 225 frames |
 
 ## Build / test gate (each sealed phase must pass)
 
@@ -101,10 +102,11 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
-## CLI (Phase A–Q surface)
+## CLI (Phase A–R surface)
 
-The store substrate (`vole_video::store`) and the native procedural ingest API
-(`vole_video::ingest`, §53 script format in `vole_video::script`) are
+The store substrate (`vole_video::store`), the native procedural ingest API
+(`vole_video::ingest`, §53 script format in `vole_video::script`), and the
+procedural transport layer (`vole_video::transport`, Phase R) are
 library-level; the CLI surface is unchanged.
 
 ```
@@ -142,8 +144,8 @@ vole encode --width 1920 --height 1080 --frames 101 box.raw box.vole
 
 ## Status
 
-**Current head: Phase Q sealed** (native procedural ingest API); next in the
-mandated ladder is **Phase R** (procedural transport), then S–U.
+**Current head: Phase R sealed** (procedural transport); next in the
+mandated ladder is **Phase S** (partial materialization), then T–U.
 The phase ledger, mechanism ledger, per-phase receipts, and frozen format
 decisions are authoritative and kept current:
 
@@ -153,7 +155,7 @@ CONFORMANCE.md             per-phase conformance rows + goldens
 SECURITY.md / SPEC.md      limits, hostile-input contract, universe v1
 
 docs/empirical-status.md   mechanism ledger (ADOPTED / RECORDED / PROPOSED / …)
-docs/phase-{a..o}.md        sealed phase receipts
+docs/phase-*.md           sealed phase receipts (a–r)
 docs/architecture.md       format-v1, transitions, residuals, accounting, …
 evidence/campaigns/        timestamped, reproducible evidence (never overwritten)
 ```
@@ -164,7 +166,7 @@ only measured, courted mechanisms are.
 ## Release
 
 Published on crates.io as [`vole-video`](https://crates.io/crates/vole-video)
-(lib `vole_video`; the `vole` binary). Current: **v0.13.x — Phases A–Q sealed**.
+(lib `vole_video`; the `vole` binary). Current: **v0.14.x — Phases A–R sealed**.
 The `entropyfs-store` cargo feature (default OFF) links the real EntropyFS
 engine adapter; the standalone build never needs it.
 

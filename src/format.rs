@@ -125,6 +125,21 @@ impl Header {
 }
 
 impl Header {
+    /// v1 canonical header over the given canvas (universe/profile v1). Used
+    /// by the transport packetizer to reproduce the standalone header bytes.
+    pub(crate) fn v1(width: u32, height: u32, feature_bits: u32) -> Self {
+        Header {
+            format_version: FORMAT_VERSION,
+            universe_id: UNIVERSE_V1,
+            limit_profile: LIMIT_PROFILE_V1,
+            feature_bits,
+            width,
+            height,
+        }
+    }
+}
+
+impl Header {
     /// Write header bytes.
     pub fn write(&self, sink: &mut ByteSink) -> Result<(), VoleError> {
         sink.extend(&MAGIC)?;
@@ -844,15 +859,7 @@ impl StreamWriter {
     /// any) are written just before the checkpoint record.
     pub fn checkpoint_with(mut self, instances: &[Instance]) -> Result<Self, VoleError> {
         self.write_decls()?;
-        self.sink.byte(TAG_CHECKPOINT)?;
-        self.sink.byte(self.background)?;
-        self.sink.push(instances.len() as u32)?;
-        for inst in instances {
-            self.sink.push(inst.id.0)?;
-            self.sink.push(inst.object_id.0)?;
-            self.sink.push(wpos(inst.x))?;
-            self.sink.push(wpos(inst.y))?;
-        }
+        write_plain_checkpoint(&mut self.sink, self.background, instances)?;
         self.have_checkpoint = true;
         Ok(self)
     }
@@ -875,16 +882,7 @@ impl StreamWriter {
             }
         }
         self.write_decls()?;
-        self.sink.byte(TAG_CHECKPOINT_BINDINGS)?;
-        self.sink.byte(self.background)?;
-        self.sink.push(instances.len() as u32)?;
-        for (inst, binding) in instances {
-            self.sink.push(inst.id.0)?;
-            self.sink.push(inst.object_id.0)?;
-            self.sink.push(wpos(inst.x))?;
-            self.sink.push(wpos(inst.y))?;
-            self.sink.push(binding.map_or(0, |p| p.0))?;
-        }
+        write_bindings_checkpoint(&mut self.sink, self.background, instances)?;
         self.have_checkpoint = true;
         Ok(self)
     }
@@ -916,12 +914,7 @@ impl StreamWriter {
             return Err(VoleError::NonConsecutiveInterval);
         }
         self.last_interval = t.0;
-        self.sink.byte(TAG_INTERVAL)?;
-        self.sink.push(t.0)?;
-        self.sink.push(transitions.len() as u32)?;
-        for tr in transitions {
-            write_transition(&mut self.sink, tr)?;
-        }
+        write_interval_group(&mut self.sink, t.0, transitions)?;
         Ok(self)
     }
 
@@ -1182,4 +1175,115 @@ fn write_copy(
     sink.push(wpos(dst_x))?;
     sink.push(wpos(dst_y))?;
     Ok(())
+}
+
+/// Plain checkpoint record bytes (`TAG_CHECKPOINT`).
+fn write_plain_checkpoint(
+    sink: &mut ByteSink,
+    background: u8,
+    instances: &[Instance],
+) -> Result<(), VoleError> {
+    sink.byte(TAG_CHECKPOINT)?;
+    sink.byte(background)?;
+    sink.push(instances.len() as u32)?;
+    for inst in instances {
+        sink.push(inst.id.0)?;
+        sink.push(inst.object_id.0)?;
+        sink.push(wpos(inst.x))?;
+        sink.push(wpos(inst.y))?;
+    }
+    Ok(())
+}
+
+/// Palette-aware checkpoint record bytes (`TAG_CHECKPOINT_BINDINGS`, Phase J).
+fn write_bindings_checkpoint(
+    sink: &mut ByteSink,
+    background: u8,
+    instances: &[(Instance, Option<crate::state::PaletteId>)],
+) -> Result<(), VoleError> {
+    sink.byte(TAG_CHECKPOINT_BINDINGS)?;
+    sink.byte(background)?;
+    sink.push(instances.len() as u32)?;
+    for (inst, binding) in instances {
+        sink.push(inst.id.0)?;
+        sink.push(inst.object_id.0)?;
+        sink.push(wpos(inst.x))?;
+        sink.push(wpos(inst.y))?;
+        sink.push(binding.map_or(0, |p| p.0))?;
+    }
+    Ok(())
+}
+
+/// One interval group record (`TAG_INTERVAL t count transitions`).
+fn write_interval_group(
+    sink: &mut ByteSink,
+    t: u64,
+    transitions: &[Transition],
+) -> Result<(), VoleError> {
+    sink.byte(TAG_INTERVAL)?;
+    sink.push(t)?;
+    sink.push(transitions.len() as u32)?;
+    for tr in transitions {
+        write_transition(sink, tr)?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Record byte helpers (shared with the Phase-R transport packetizer so every
+// transport payload is byte-identical to the standalone writer's output).
+// ---------------------------------------------------------------------------
+
+/// Canonical header record bytes.
+pub(crate) fn header_bytes(h: &Header) -> Result<Vec<u8>, VoleError> {
+    let mut s = ByteSink::new();
+    h.write(&mut s)?;
+    Ok(s.into_vec())
+}
+
+/// One pre-checkpoint object declaration record (`[tag][id][w][h][payload]`).
+pub(crate) fn object_decl_bytes(id: ObjectId, obj: &Object) -> Result<Vec<u8>, VoleError> {
+    let mut s = ByteSink::new();
+    write_object_decl(&mut s, id, obj)?;
+    Ok(s.into_vec())
+}
+
+/// One palette-table declaration record (`0x06 id len entries`, Phase J).
+pub(crate) fn palette_decl_bytes(
+    id: crate::state::PaletteId,
+    entries: &[u8],
+) -> Result<Vec<u8>, VoleError> {
+    let mut s = ByteSink::new();
+    s.byte(TAG_PALETTE)?;
+    s.push(id.0)?;
+    s.push(entries.len() as u32)?;
+    s.extend(entries)?;
+    Ok(s.into_vec())
+}
+
+/// Plain checkpoint record bytes.
+pub(crate) fn checkpoint_bytes(
+    background: u8,
+    instances: &[Instance],
+) -> Result<Vec<u8>, VoleError> {
+    let mut s = ByteSink::new();
+    write_plain_checkpoint(&mut s, background, instances)?;
+    Ok(s.into_vec())
+}
+
+/// Palette-aware checkpoint record bytes (Phase J).
+pub(crate) fn checkpoint_bindings_bytes(
+    background: u8,
+    instances: &[(Instance, Option<crate::state::PaletteId>)],
+) -> Result<Vec<u8>, VoleError> {
+    let mut s = ByteSink::new();
+    write_bindings_checkpoint(&mut s, background, instances)?;
+    Ok(s.into_vec())
+}
+
+/// One interval group record bytes.
+pub(crate) fn interval_bytes(t: u64, transitions: &[Transition]) -> Result<Vec<u8>, VoleError> {
+    let mut s = ByteSink::new();
+    write_interval_group(&mut s, t, transitions)?;
+    Ok(s.into_vec())
 }
