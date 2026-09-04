@@ -1,10 +1,9 @@
 # PROJECT_STATE
 
-**Current head:** Phase U sealed (see git log) — the mandated ladder A → U is complete.
-**Current phase:** U (perceptual profile, LAST) — SEALED. No in-progress phase.
-**Phase order:** master brief §64, verified against the prior-art §29 lettering:
-A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
-**Format version:** v1 (`.vole`), universe v1, limit-profile 1.
+**Current head:** Phase V.1 (video half) — V.1.0 audit + architecture contract complete.
+**Current phase:** V.1 (Universal Procedural Video Codec — video half of the post-U research programme). V.1.0 done (audit + `docs/phase-v1-video-architecture.md`); **next: V.1.1 canonical media domain** (rational time, epochs, plane/layout registry, bit depths, subsampling, color, orientation/SAR/interlace/side data — synthetic vectors only; no foreign import yet). V.2 (procedural audio) is separate and later.
+**Phase order:** master brief §64 A→U sealed; post-U programme = V.1 video then V.2 audio, each executed in its own brief's subphase order (V.1: V.1.1 → V.1.23, entry-gated).
+**Format version:** v1 (`.vole`, permanent — goldens unchanged) · v2 + video universe v2 specified from V.1.1 and frozen at the end of V.1.2 (see `docs/phase-v1-video-architecture.md` §2.1).
 
 ## Completed (measured, courted, sealed)
 
@@ -354,13 +353,26 @@ surface regression-clean. Receipt + evidence: `docs/phase-u.md`,
 
 ## In progress
 
-(none — the mandated ladder A → U is complete and sealed)
+Phase V.1 (Universal Procedural Video Codec — video half): **V.1.0 complete**
+(audit + architecture contract, `docs/phase-v1-video-architecture.md` +
+`evidence/campaigns/phase-v1-0-audit-…/`). Next concrete action: **V.1.1
+canonical media domain** — rational time primitives, epoch model, component-
+plane/layout registry, bit depths, subsampling + chroma location, color
+description, orientation/SAR/interlace/side data, exercised on synthetic
+canonical vectors.
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-(none — Phases A → U are all sealed)
+The post-U research programme runs in its own briefs' subphase order:
+V.1 video: V.1.0 audit (done) → V.1.1 canonical media domain → V.1.2 multiplane
+core → V.1.3 import bridge → V.1.4 existing-family generalization → V.1.5–V.1.10
+new predictor families in ladder order → V.1.11–V.1.12 hierarchical inverse +
+DSFB → V.1.13–V.1.15 target materializer + headless direct + damage →
+V.1.16–V.1.18 surface + streaming decoder + seek → V.1.19–V.1.22 real media +
+falsification + export + soak → V.1.23 final seal (acceptance §267–§283).
+V.2 (procedural audio) follows V.1.
 
 ## Failures / uncertainty
 
@@ -481,6 +493,29 @@ raster objects) — quantization never turns noise into state. The feature bit
 0x2 is a declaration only: it never changes reconstruction, is never enforced
 as a content check, and exact streams never set it.
 
+Phase V.1 additions (audit, V.1.0): the video half's architecture contract is
+`docs/phase-v1-video-architecture.md`. Recorded structural gaps of the sealed
+post-U tree that V.1 must close: the whole sample domain is Gray8 (no plane
+model/bit depth/subsampling/color/HDR), time is an interval index (no rational
+PTS/duration/VFR), one canvas per stream (no epochs), single-chain state (no
+bidirectional structure), materializers own full-Canvas destinations, the
+representation ladder stops at transform/rANS/RAW, there is no foreign ingest,
+and partial decode still returns owned crops. Decisions: format v2 + video
+universe v2 with v1 permanent; two clocks (explicit-interval state machine +
+declarative rational timeline); epochs carry the full media interpretation;
+planar/tight/LE canonical storage (u8 ≤ 8-bit, u16 > 8-bit, float → exact
+opaque raw-bit planes); independent-plane correctness before shared motion
+geometry; layout-aware content identity; every new predictor family earns
+itself in an ablation court; bidirectional prediction is out of the V.1.1–
+V.1.10 critical path; caller-owned `materialize_into` targets with headless
+direct presentation first; damage/demand as separate graphs; foreign decode
+import/export-only via subprocess ffmpeg + narrow NUT + framehash oracle +
+canonical hash + atomic import; Matroska+FFV1 v3 default export;
+multi-dimensional exactness flags. Deferred: exact v2 byte grammar (end of
+V.1.2), affine/subpixel precisions and filter tables (V.1.5/V.1.7 courts),
+native presentation backend (V.1.16, not frozen), NUT constants (V.1.3), HDR
+native presentation (post-V.1.16).
+
 Closed by Phase O: stable residuals previously paid one-shot per frame for
 the life of a repeated difference — residual promotion now converts a run of
 identical one-shot blocks into one persistent overlay + the unchanged lane
@@ -532,3 +567,10 @@ lattice `2^shift` for shift 0..=7 over Gray8, half-up rounding with 255
 saturation / dead-zone rounding, `[1 2 1] ≫ 2` Box3 pre-filter with edge
 replication, `Distortion` integer MAE×1000/MSE/peak). v1 goldens and every
 earlier stream (`feature_bits` 0) are unchanged.
+
+The V.1 video programme adds no frozen wire decision yet: format v2 +
+video-universe-v2 dispatch rules, the two-clock model, the epoch/plane/time
+contracts, and the V.1.1–V.1.23 execution order are specified in
+`docs/phase-v1-video-architecture.md` (V.1.0); the exact v2 byte grammar is
+frozen at the end of V.1.2 in `docs/format-v2.md`. v1 remains permanently
+frozen above.

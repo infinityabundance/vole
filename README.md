@@ -170,7 +170,9 @@ vole encode --width 1920 --height 1080 --frames 101 box.raw box.vole
 
 ## Status
 
-**Current head: Phase U sealed** — the mandated ladder **A → U is complete**.
+**Current head: Phase U sealed** — the mandated ladder **A → U is complete**;
+the post-U research programme has begun with the **V.1 video half** (V.1.0
+audit + architecture contract, `docs/phase-v1-video-architecture.md`).
 The phase ledger, mechanism ledger, per-phase receipts, and frozen format
 decisions are authoritative and kept current:
 
