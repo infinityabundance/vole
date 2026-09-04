@@ -64,6 +64,32 @@ painter, including boundary frames under SHA-256 in `proof/`).
 See `docs/architecture.md`, `tests/court.rs`, `tests/malformed.rs`, and
 `docs/transitions.md` for the full court and hostile-input record.
 
+## Sealed phase surface (Phases A–O)
+
+Each phase is sealed only after the full gate
+(fmt/check/clippy `-D warnings`/test dev+release), hostile-input courts, an
+empirical court, an evidence receipt, and docs. All streams are Gray8 v1,
+reconstruction is byte-exact through the normative decoder, and evidence
+lives in `docs/phase-*.md` + `evidence/campaigns/`.
+
+| Phase | Mechanism | Headline measured result |
+|---|---|---|
+| A | Procedural core: state graph · checkpoint · transitions · materializer · RAW/FILL | one object + one instance + 100 transitions → **101 exact 1920×1080 frames** from 2,692 B (raw 209,433,600 B) |
+| B | Persistent object identity (BLAKE3) + unchanged-state lane | 10,001 identical views at ≈ 13 B/frame |
+| C | Sparse mutation: persistent overlay + strict-sorted SPARSE_PATCH | blink court: 1,820 B → 65 exact frames |
+| D | 2D copy/move (COPY_RECT / MOVE_RECT, dependency depth 1) | oracle-exact wrap-scroll court |
+| E | Integer translation (persistent per-instance velocity) | 101 frames in **1,505 B** vs 2,692 B per-frame baseline |
+| F | Normative entropy floor: native order-0 rANS | byte-parity vs the `ryg-rans-rs` oracle (deterministic, in-crate) |
+| G | Exhaustive inverse proceduralization (`vole encode`) | per-frame RAW/FILL/UNCHANGED/EXACT/SPARSE/COPY/TRANSLATION/rANS court, byte-validated; gliding box 2,076,291 B vs 209 MB raw |
+| H | Exhaustive / FixedHeuristic / DsfbGuided search over one universe | DSFB ≤ 0.18× candidates at byte-identical cost (steady); 1.055× oracle across four regime changes |
+| I | Bounded parametric trajectories + trajectory collapse | accel flagship 686 B vs 1,132 B baseline (41 identical frames) |
+| J | Palette state (index objects, mutable palette table, bindings) | accent cycle **24 B/interval** vs 204,773 B palette-less sparse floor |
+| K | Variable regions (64 → 32 → 16 → 8) in the raster encoder | localized change with **zero whole-frame rebases** after frame 0 |
+| L | Bounded Q8 fixed-point affine state (pan/zoom/rotation) | rotating tile **42 B/interval** (618× vs raw), byte-exact |
+| M | Transform residual floor: reversible integer lifting DCT | brightness drift 69,848 B/interval vs 2,073,645 B RAW reset (29.7×) |
+| N | Bounded procedural generators (gradient/checker/periodic/noise) | drifting full-HD gradient: 12 frames in **706 B** (35,245× vs raw) |
+| O | Equivalence-preserving re-optimization (`vole optimize`) | five rewrite families, each accepted only when strictly smaller **and** decode-identical; flagship 2,692 → 1,505 B |
+
 ## Build / test gate (each sealed phase must pass)
 
 ```
@@ -92,6 +118,12 @@ every candidate byte-exactly, emits the
 complete-cost winner, and decode-verifies the stream end-to-end before
 writing it.
 
+`vole optimize <in.vole> <out.vole>` (Phase O) rewrites a decoded stream by
+bounded, equivalence-preserving families — velocity/trajectory collapse,
+residual promotion, generator substitution, duplicate merge — accepting a
+rewrite only when the rebuilt stream is **strictly smaller** and decodes
+byte-identically (`M(D0) == M(D1)`, proven).
+
 Example (sealed Phase-G evidence, see `docs/phase-g.md`):
 
 ```
@@ -104,9 +136,29 @@ vole encode --width 1920 --height 1080 --frames 101 box.raw box.vole
 
 ## Status
 
-Phase-level status is maintained in `PROJECT_STATE.md` and
-`docs/empirical-status.md`. Mechanisms are **never marked implemented/adopted
-on the basis of intent**; only measured, courted mechanisms are.
+**Current head: Phase O sealed** (representation re-optimization); next in the
+mandated ladder is **Phase P** (optional EntropyFS persistence), then Q–U.
+The phase ledger, mechanism ledger, per-phase receipts, and frozen format
+decisions are authoritative and kept current:
+
+```text
+PROJECT_STATE.md           current head, phase, next action, failures, frozen format
+CONFORMANCE.md             per-phase conformance rows + goldens
+SECURITY.md / SPEC.md      limits, hostile-input contract, universe v1
+
+docs/empirical-status.md   mechanism ledger (ADOPTED / RECORDED / PROPOSED / …)
+docs/phase-{a..o}.md        sealed phase receipts
+docs/architecture.md       format-v1, transitions, residuals, accounting, …
+evidence/campaigns/        timestamped, reproducible evidence (never overwritten)
+```
+
+Mechanisms are **never marked implemented/adopted on the basis of intent**;
+only measured, courted mechanisms are.
+
+## Release
+
+Published on crates.io as [`vole-video`](https://crates.io/crates/vole-video)
+(lib `vole_video`; the `vole` binary). Current: **v0.11.x — Phases A–O sealed**.
 
 ## License
 
