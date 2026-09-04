@@ -250,7 +250,7 @@ fn block_is_rans(block: &[u8]) -> bool {
 /// Generator fits that pass their spot-check prefilter, in deterministic
 /// evaluation order. `probe` restricts the search to the cheap gradient fit
 /// (fixed heuristic / DSFB rotating sweep).
-fn fit_generators(target: &Canvas, probe: bool) -> Vec<crate::generator::Generator> {
+pub(crate) fn fit_generators(target: &Canvas, probe: bool) -> Vec<crate::generator::Generator> {
     use crate::generator::Generator;
     let w = target.width() as usize;
     let h = target.height() as usize;

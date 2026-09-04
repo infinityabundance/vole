@@ -41,19 +41,40 @@ use crate::{
 };
 
 /// A run of consecutive single-`SetPosition` groups (candidate for collapse).
-struct Run {
+#[derive(Debug, Clone)]
+pub(crate) struct Run {
     /// Index of the first group of the run in the timeline.
-    start: usize,
+    pub(crate) start: usize,
     /// Index of the last group of the run.
-    end: usize,
+    pub(crate) end: usize,
     /// Length of the run in groups/frames.
-    len: usize,
+    pub(crate) len: usize,
     /// Target instance of every group in the run.
-    id: InstanceId,
+    pub(crate) id: InstanceId,
     /// Instance position *before* the run began (the trajectory start).
-    p0: (i64, i64),
+    pub(crate) p0: (i64, i64),
     /// Positions emitted by the run's groups (frame `start + k` → `pos[k]`).
-    pos: Vec<(i64, i64)>,
+    pub(crate) pos: Vec<(i64, i64)>,
+}
+
+impl Run {
+    /// Constant per-frame delta of the whole sequence including the state
+    /// position before the run (the first emitted position must already be
+    /// `p0 + (vx, vy)`), if the run is a pure constant-velocity motion.
+    pub(crate) fn constant_velocity(&self) -> Option<(i64, i64)> {
+        if self.len < 2 {
+            return None;
+        }
+        let first = (self.pos[0].0 - self.p0.0, self.pos[0].1 - self.p0.1);
+        let ok = self.pos.iter().enumerate().all(|(k, p)| {
+            let want = (
+                self.p0.0 + first.0 * (k as i64 + 1),
+                self.p0.1 + first.1 * (k as i64 + 1),
+            );
+            *p == want
+        });
+        ok.then_some(first)
+    }
 }
 
 /// Attempt one improving trajectory collapse over `bytes`.
@@ -110,7 +131,7 @@ pub fn collapse_stream(bytes: &[u8]) -> Result<Option<Vec<u8>>, VoleError> {
 }
 
 /// Locate maximal single-`SetPosition` runs by replaying the state timeline.
-fn find_runs(parsed: &ParsedStream) -> Result<Vec<Run>, VoleError> {
+pub(crate) fn find_runs(parsed: &ParsedStream) -> Result<Vec<Run>, VoleError> {
     let mut replay = parsed.clone_initial();
     let mut out: Vec<Run> = Vec::new();
     let mut open: Option<Run> = None;

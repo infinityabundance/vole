@@ -73,13 +73,14 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
-## CLI (Phase A–N surface)
+## CLI (Phase A–O surface)
 
 ```
 vole demo moving-rect [out.vole]
 vole encode --width W --height H [--frames N] in.raw out.vole
 vole decode <in.vole> [outdir]
 vole verify <in.vole>
+vole optimize <in.vole> <out.vole>
 vole bench
 ```
 

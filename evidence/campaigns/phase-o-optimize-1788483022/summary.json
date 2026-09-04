@@ -1,0 +1,92 @@
+{
+  "phase": "O",
+  "semantics": "equivalence-preserving representation re-optimization (vole optimize, master brief §44). optimize_stream parses a standalone stream and searches a bounded rewrite set, applying the first improving rewrite per iteration to a fixpoint (stream strictly shrinks, so the loop terminates). Every candidate is accepted only when the rebuilt stream is strictly smaller (J(D1) < J(D0)) AND decodes with the normative decoder to byte-identical frames (M(D0) == M(D1) proven by full decode, never trusted). Families in deterministic order: (1) velocity_collapse - a run of consecutive single-SetPosition groups with a constant delta (including the step from the pre-run position) becomes one SetVelocity + one AdvanceTranslations per frame (13 + len bytes vs 13*len); (2) trajectory_collapse - the Phase-I accel/piecewise parametric pass (reused collapse_stream); (3) residual_promotion - a maximal run of identical one-shot point-residual blocks becomes one persistent sparse overlay + the unchanged lane (closes the recorded Phase-G/K gap 'stable residuals pay one-shot per frame'); (4) generator_substitution - a declared raster object whose samples are exactly a bounded program (gradient/checker/periodic fits + byte-for-byte render check) is re-declared as that generator (samples never stored); (5) duplicate_merge - byte-identical object declarations share one record with references remapped. Palette-bearing streams are preserved verbatim (the rebuild path re-emits objects/instances/intervals only; recorded limitation, never a silent change). Noise is never substituted (unbounded seed search, §21). CLI: vole optimize <in.vole> <out.vole> prints before/after/rewrites/exact.",
+  "candidate_gates": {
+    "equivalence": "full normative decode of the rebuilt stream == original frames (byte-for-byte)",
+    "improvement": "rebuilt.len() < original.len() (strict)",
+    "fixpoint": "loop bounded by the strictly shrinking byte count",
+    "velocity_min_run": ">= 2 groups, constant delta from p0, no prior velocity/trajectory on the instance (find_runs guards)",
+    "residual_promotion_gate": "run >= 2 identical single-residual groups; point blocks only; overlay stays under max_overlay_points; byte gate",
+    "generator_gate": "object raster >= 32 samples and the program declaration is strictly smaller",
+    "palette_streams": "preserved verbatim"
+  },
+  "courts": {
+    "velocity_100x1080p": {
+      "content": "100 per-frame SetPosition groups of a 200x100 textured tile at 1920x1080 (linear +2 px/frame)",
+      "before_bytes": 22691,
+      "after_bytes": 21504,
+      "saved_bytes": 1187,
+      "rewrites": "velocity_collapse",
+      "velocity_vs_trajectory_bytes": "21504 vs 21517 (velocity wins by the descriptor difference)",
+      "exact": true,
+      "cli": "the Phase-A moving-rect flagship optimizes 2692 B -> 1505 B via velocity collapse, reproducing the Phase-E per-frame velocity baseline exactly"
+    },
+    "accel_40x192x128": {
+      "before_bytes": 1387,
+      "after_bytes": 695,
+      "saved_bytes": 692,
+      "saved_fraction": 0.499,
+      "rewrites": "trajectory_collapse generator_substitution",
+      "exact": true
+    },
+    "stable_residual_30x": {
+      "content": "a stable 40-point clock-glyph difference carried one-shot for 30 frames over a static base",
+      "before_bytes": 36277,
+      "after_bytes": 856,
+      "saved_fraction": 0.976,
+      "rewrites": "residual_promotion generator_substitution",
+      "residual_bytes_before": 11070,
+      "residual_bytes_after": 0,
+      "exact": true,
+      "note": "the recorded stable-residual gap is closed: repeated one-shot residuals become the unchanged lane"
+    },
+    "raster_gradient_decl": {
+      "content": "192x128 full-canvas raster whose samples are exactly a gradient",
+      "before_bytes": 24667,
+      "after_bytes": 101,
+      "saved_fraction": 0.996,
+      "rewrites": "generator_substitution",
+      "exact": true
+    },
+    "eight_identical_tiles": {
+      "content": "eight declarations of byte-identical 64x64 gradient tiles",
+      "before_bytes": 33062,
+      "after_bytes": 213,
+      "saved_fraction": 0.994,
+      "rewrites": "generator_substitution duplicate_merge",
+      "exact": true
+    },
+    "inverse_gradient_16x_negative": {
+      "content": "Phase-N inverse-encoder output on drifting gradients (already procedural)",
+      "before_bytes": 926,
+      "after_bytes": 926,
+      "saved_bytes": 0,
+      "rewrites": [],
+      "exact": true,
+      "note": "honest fixpoint: the encoder already emitted the optimized representation"
+    },
+    "noise_encode_negative": {
+      "before_bytes": 24680,
+      "after_bytes": 24680,
+      "saved_bytes": 0,
+      "rewrites": [],
+      "exact": true
+    },
+    "palette_stream": {
+      "note": "Phase-J accent-cycle court stream preserved verbatim (rewrites empty, bytes equal), decode-identical"
+    }
+  },
+  "hostile": {
+    "garbage": "typed error",
+    "truncated_valid_stream": "typed error",
+    "never_grows": "asserted across every court stream"
+  },
+  "all_streams_exact": true,
+  "test_count": "tests/phase_o.rs (8 courts); full gate: cargo fmt --check, cargo check --all-targets, cargo clippy --all-targets --all-features -- -D warnings, cargo test --all-features (205 tests, 0 failures, dev and release)",
+  "notes": [
+    "No wire-format change in Phase O: optimization is purely a re-representation of the same v1 grammar; every optimized stream is decoded and byte-compared against the input before acceptance.",
+    "The decode-identity invariant is the Phase O contract: decoded_before_hash == decoded_after_hash holds for every accepted rewrite (the OptimizeReport.exact flag re-checks it at the end).",
+    "Recorded boundaries: palette streams are preserved verbatim; noise is never substituted; copy-decomposition, checkpoint placement, and per-frame entropy-model retuning remain re-encode territory (the court measures them as zero-savings fixpoints on current encoder output); the encoder's own output is already near-optimal for the families optimize knows, which is itself a measured result (inverse-gradient and noise streams: 0 B saved).",
+    "CLI wiring: vole optimize <in.vole> <out.vole>; the Phase-A proof stream (2692 B of 101 per-frame SetPosition groups) optimizes to 1505 B - exactly the Phase-E velocity baseline."
+  ]
+}

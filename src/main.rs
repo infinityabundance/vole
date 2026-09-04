@@ -6,6 +6,7 @@
 //! vole demo moving-rect [out.vole]
 //! vole decode <in.vole> [outdir]
 //! vole verify <in.vole>
+//! vole optimize <in.vole> <out.vole>
 //! vole bench
 //! ```
 
@@ -21,11 +22,12 @@ fn main() -> Result<(), VoleError> {
         Some("encode") => cmd_encode(a),
         Some("decode") => cmd_decode(a),
         Some("verify") => cmd_verify(a),
+        Some("optimize") => cmd_optimize(a),
         Some("bench") => cmd_bench(),
         Some("statics") => cmd_statics(),
         other => {
             eprintln!("vole: unknown or missing subcommand: {:?}", other);
-            eprintln!("usage: vole <demo|encode|decode|verify|bench|statics> ...");
+            eprintln!("usage: vole <demo|encode|decode|verify|optimize|bench|statics> ...");
             if other.is_some() {
                 Err(VoleError::ApiConstraint("unknown subcommand"))
             } else {
@@ -164,6 +166,36 @@ fn cmd_decode(mut a: impl Iterator<Item = String>) -> Result<(), VoleError> {
 fn frames_of(bytes: &[u8]) -> Result<Vec<Canvas>, VoleError> {
     let parsed: ParsedStream = decoder::decode_bytes(bytes)?;
     decoder::materialize_all(&parsed)
+}
+
+fn cmd_optimize(mut a: impl Iterator<Item = String>) -> Result<(), VoleError> {
+    // vole optimize <in.vole> <out.vole>
+    let infile = a
+        .next()
+        .ok_or(VoleError::ApiConstraint("optimize needs an input .vole"))?;
+    let outfile = a
+        .next()
+        .ok_or(VoleError::ApiConstraint("optimize needs an output .vole"))?;
+    let bytes = std::fs::read(&infile).map_err(|_| VoleError::ApiConstraint("read failed"))?;
+    let report = vole_video::optimize::optimize_stream(&bytes)?;
+    if report.stream.len() < bytes.len() {
+        std::fs::write(&outfile, &report.stream)
+            .map_err(|_| VoleError::ApiConstraint("write failed"))?;
+    }
+    println!(
+        "vole optimize: {} -> {} ({} B -> {} B, saved {} B) exact={} rewrites=[{}]",
+        infile,
+        outfile,
+        bytes.len(),
+        report.stream.len(),
+        bytes.len().saturating_sub(report.stream.len()),
+        report.exact,
+        report.rewrites.join(" ")
+    );
+    if report.stream.len() >= bytes.len() && report.rewrites.is_empty() {
+        println!("  (fixpoint: no improving rewrite exists; input preserved)");
+    }
+    Ok(())
 }
 
 fn cmd_verify(mut a: impl Iterator<Item = String>) -> Result<(), VoleError> {

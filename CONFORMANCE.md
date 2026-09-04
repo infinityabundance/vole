@@ -44,6 +44,8 @@ independently re-derived reference in `proof/`.
 | Phase N: generator objects materialize byte-exact vs independent references (all four kinds, plain + affine + motion) | PASS |
 | Phase N: pure-gradient sequences are discovered procedurally (35 245× flagship); noise and wrong-seed controls stay RAW | PASS |
 | Phase N: generator+residual closure exact; hostile generator wire forms typed; identity == wire record; accounting sums | PASS |
+| Phase O: every accepted rewrite is strictly smaller and decode-identical (velocity / trajectory collapse, residual promotion, generator substitution, duplicate merge) | PASS |
+| Phase O: never grows on earlier-phase stream shapes; palette streams preserved verbatim; hostile input typed | PASS |
 
 ## Goldens
 

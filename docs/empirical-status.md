@@ -44,11 +44,12 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Bounded procedural generators (gradient / checker / periodic sawtooth / seeded noise as immutable content programs; object tag 0x07) | ADOPTED | Phase N: 1920×1080 drifting-gradient flagship — 12 frames in **706 B** (35 245× vs raw), winners `generator×12`, all frames byte-exact; authored full-HD frames 98–105 B (≈ 20 000×); noise stays RAW (unknowable seed is never discovered — measured negative control); hostile wire + identity + accounting courts (`tests/phase_n.rs`, `src/generator.rs`) |
 | Whole-frame generator discovery with exact residual closure | ADOPTED | Phase N: content-derived fits (gradient / checker lattice / period lattice), O(w+h) prefilter + normative render validation; a fit that is not exact is admissible only as `generator_residual` with its correction counted (gate ≥ 15/16 pixels); pure ramps are now explained procedurally (Phase-M ramp court re-measured, recorded) |
 | Procedural generators | ADOPTED | Phase N (see rows above) |
+| Equivalence-preserving representation re-optimization (`vole optimize`, §44) | ADOPTED | Phase O: velocity collapse (13+len vs 13·len per linear run), trajectory collapse, residual promotion (stable one-shot residuals → persistent overlay + unchanged lane; the recorded Phase-G/K gap is closed), generator substitution (raster → program decl), duplicate merge; every rewrite is accepted only when strictly smaller AND decode-identical (M(D0)==M(D1) proven); never grows; palette streams preserved verbatim (`tests/phase_o.rs`, `examples/optimize_proof.rs`) |
+| Representation re-optimization (`vole optimize`) | ADOPTED | Phase O (see row above) |
 | Partial materialization (tile/rect) | PROPOSED | pending |
 | Resolution-independent procedural state | PROPOSED | pending |
 | DSFB-governed search | PROPOSED (non-normative) | pending courts |
 | EntropyFS persistence / cross-video sharing | PROPOSED (optional substrate) | pending |
-| Representation re-optimization (`vole optimize`) | PROPOSED | pending |
 | Procedural transport streaming | PROPOSED | pending |
 | Archive / perceptual profiles | PROPOSED | pending (last) |
 

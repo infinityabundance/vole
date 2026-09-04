@@ -1,0 +1,29 @@
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/examples/optimize_proof`
+velocity-100x1080p: 22691B -> 21504B saved=1187B (0.052) exact=true rewrites=[velocity_collapse]
+  velocity-vs-trajectory: velocity=21504B trajectory_only=21517B
+accel-40x192x128: 1387B -> 695B saved=692B (0.499) exact=true rewrites=[trajectory_collapse generator_substitution]
+stable-residual-30x: 36277B -> 856B saved=35421B (0.976) exact=true rewrites=[residual_promotion generator_substitution]
+  residual_bytes: 11070B -> 0B
+raster-gradient-decl: 24667B -> 101B saved=24566B (0.996) exact=true rewrites=[generator_substitution]
+eight-identical-tiles: 33062B -> 213B saved=32849B (0.994) exact=true rewrites=[generator_substitution duplicate_merge]
+inverse-gradient-16x: 926B -> 926B saved=0B (0.000) exact=true rewrites=[]
+noise-encode (negative): 24680B -> 24680B saved=0B (0.000) exact=true rewrites=[]
+decode-proof: 51 frames identical before/after (1775B -> 814B)
+   Compiling vole-video v0.10.0 (/mnt/1tb_kingston/vole)
+    Finished `release` profile [optimized] target(s) in 2.34s
+     Running tests/phase_o.rs (target/release/deps/phase_o-1f0f2de63a02775b)
+
+running 8 tests
+test hostile_input_is_typed ... ok
+test duplicate_objects_share_one_declaration ... ok
+test palette_streams_are_preserved_verbatim ... ok
+test raster_objects_are_substituted_by_generators ... ok
+test repeated_residual_is_promoted_to_the_unchanged_lane ... ok
+test accelerating_runs_collapse_via_trajectory ... ok
+test velocity_collapse_serves_linear_setposition_runs ... ok
+test optimize_never_grows_on_prior_phase_stream_shapes ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s
+
+vole optimize: mr.vole -> mr-opt2.vole (2692 B -> 1505 B, saved 1187 B) exact=true rewrites=[velocity_collapse]

@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase N sealed (see git log)
-**Current phase:** N (procedural generators) — SEALED. Next: Phase O (representation re-optimization).
+**Current head:** Phase O sealed (see git log)
+**Current phase:** O (representation re-optimization) — SEALED. Next: Phase P (EntropyFS persistence).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -178,15 +178,37 @@ pure wrap-ramp content (Phase M's transform-floor exhibit) is now explained
 procedurally. Receipt + evidence: `docs/phase-n.md`,
 `evidence/campaigns/phase-n-generators-…/`.
 
+Phase O (this head): **equivalence-preserving representation
+re-optimization** (`vole optimize`, `src/optimize.rs`, §44) — a decoded
+stream is searched by a bounded rewrite set and the first strictly-smaller,
+decode-identical candidate is applied, iterating to a fixpoint: **velocity
+collapse** (constant-delta `SetPosition` runs → one `SetVelocity` +
+per-frame `AdvanceTranslations`, 13+len vs 13·len); **trajectory collapse**
+(Phase I pass reused); **residual promotion** (a run of identical one-shot
+point residuals → one persistent sparse overlay + the unchanged lane — the
+recorded stable-residual gap is closed); **generator substitution** (raster
+objects whose samples are exactly a bounded program are re-declared as
+generators); **duplicate merge** (byte-identical objects share one
+declaration, references remapped). Every acceptance is proven by full
+normative decode (`M(D0)==M(D1)`) and requires strict shrink (`J(D1)<J(D0)`);
+never grows; palette streams preserved verbatim. Measured: 100-frame linear
+run at 1920×1080 22 691 → 21 504 B (velocity; 13 B/run better than
+trajectory); stable 40-point residual × 30 frames 36 277 → 856 B (97.6%);
+full-canvas raster gradient decl 24 667 → 101 B; eight identical tiles
+33 062 → 213 B; inverse-encoder and noise outputs are zero-savings fixpoints
+(honest negatives); the Phase-A proof stream (2 692 B) optimizes to 1 505 B
+via the CLI — exactly the Phase-E velocity baseline. Receipt + evidence:
+`docs/phase-o.md`, `evidence/campaigns/phase-o-optimize-…/`.
+
 ## In progress
 
-(none — Phase N sealed; Phase O is next)
+(none — Phase O sealed; Phase P is next)
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase O representation re-optimization (`vole optimize`) → Phase P optional
+Phase P optional
 EntropyFS persistence → Phase Q native procedural ingest API → Phase R
 procedural transport → Phase S partial materialization → Phase T archive
 profile → Phase U perceptual profile (last).
@@ -196,14 +218,13 @@ profile → Phase U perceptual profile (last).
 No mechanism rejected yet. Measured, recorded gaps (not hidden): frame 0 and
 content-wide rebases still pay one whole-canvas declaration (regions serve
 localized change; native ingest is Phase Q); region *instances persist* —
-long-horizon instance retirement and region+residual composites (dense
-region with sparse dust) are Phase-O re-optimization surface; the
-raster-origin encoder has no palette/trajectory/affine *discovery* family yet
-— the measured flattening taxes are 174× (palette), 7× (rotation/affine on
-the 160×160 court), and trajectory collapse is a post-pass (Phase O `vole
-optimize`); the fixed-heuristic region probe is blind to granularity
-(measured J 1.036 on the reuse court); stable residuals pay one-shot per
-frame until Phase O promotes them; DSFB can miss a cheaper family with no
+long-horizon instance retirement and encoder-side region+residual composite
+discovery (dense region with sparse dust) are open surface (later phases);
+the raster-origin encoder has no palette/trajectory/affine *discovery* family
+yet — the measured flattening taxes are 174× (palette), 7× (rotation/affine
+on the 160×160 court), and trajectory/velocity collapse is a post-pass (Phase
+O `vole optimize`); the fixed-heuristic region probe is blind to granularity
+(measured J 1.036 on the reuse court); DSFB can miss a cheaper family with no
 slew/regime signal for at most one small interval (Phase H receipt);
 trajectory descriptors only pay from runs of ≥ 3 frames (Phase I receipt);
 active zero-velocity trajectories cost more than the unchanged lane (Phase
@@ -213,19 +234,28 @@ canvas, so many concurrent affine instances are capped by
 `max_affine_work` (8 full canvases) rather than per-instance raster cost
 (Phase M); the transform floor is 4×4-only with one order-0 byte model per
 DC/AC container — block-size extension and per-coefficient-position contexts
-are Phase-O surface (Phase M); the accounting fix for inline rANS models
+are open surface (Phase M); the accounting fix for inline rANS models
 changes the `model_bytes`/`residual_bytes` split of streams carrying rANS
 residuals (bucket totals are unchanged; Phase M receipt); the fixed-heuristic
 scroll-by-7 court was re-measured after Phase M: the transform floor absorbs
 the dense scroll frames at ~950 B, so the probe-blind stream is now measured
 by cost (8.1×, was 11.5× by rebase pre-M; copy blindness unchanged) (Phase
-M receipt); generator discovery is whole-frame only in v1 — generic and
-rectangular-region generator fits are Phase-O/Q surface (Phase N); pure
+M receipt); generator discovery inside the raster encoder is whole-frame only
+in v1 — generic/rectangular-region generator fits are Phase-Q surface (Phase
+N; Phase O added substitution on *declared* raster objects only); pure
 ramps are now explained procedurally, so the Phase-M full-range-ramp court
 was re-measured to `generator` winners (recorded in the Phase M/N receipts);
 seeded noise is author-only and never discovered by the inverse encoder —
 the measured RAW flattening for unknowable noise is structural, not a
 compression claim (Phase N receipt).
+
+Closed by Phase O: stable residuals previously paid one-shot per frame for
+the life of a repeated difference — residual promotion now converts a run of
+identical one-shot blocks into one persistent overlay + the unchanged lane
+(measured 36 277 → 856 B on the 30-frame court, Phase O receipt);
+copy-decomposition, checkpoint placement, and per-frame entropy-model
+retuning were courted and measured as zero-savings fixpoints on current
+encoder output (recorded, Phase O receipt).
 
 ## Frozen (format decisions)
 
