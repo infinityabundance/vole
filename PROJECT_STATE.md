@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase R sealed (see git log)
-**Current phase:** R (procedural transport) — SEALED. Next: Phase S (partial materialization).
+**Current head:** Phase S sealed (see git log)
+**Current phase:** S (partial materialization) — SEALED. Next: Phase T (archive profile).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -276,9 +276,33 @@ zeroed); corruption courts typed (payload flip → typed feed error, digest
 flip → verify false). Receipt + evidence: `docs/phase-r.md`,
 `evidence/campaigns/phase-r-transport-…/`.
 
+Phase S (this head): **partial materialization** (§16/§37/§66, `src/partial.rs`)
+— `View::Rect` (arbitrary sub-rectangle) and `View::Tile` (canonical tile
+grid) partial views over a parsed stream. Semantics: every interval canvas op
+reads only the previous frame and overpaints the fresh base, so a **demand
+plan** walks backward from the requested region collecting, per level, exactly
+what the next level reads, and a forward replay paints only demanded levels
+(empty-demand levels skipped; state transitions replayed exactly as whole-frame
+decode). Demand regions are merged per-row spans that saturate to the whole
+canvas beyond a budget (sound over-approximation, bounded). `FullFrame`/
+whole-box views replay the canonical step machinery — byte- and error-
+identical with whole-frame decode; sub-frame views validate everything
+contributing to the region (residual containers fully validated against the
+canvas) and paint only demanded samples (documented audit-scope boundary).
+`PartialStats` reports painted sample writes (base/copy/residual), objects
+touched, peak raster, levels, replay. Measured: 1920×1080 41-frame viewport
+court — one level of 56 400 samples painted per decode (2.72% of the
+whole-frame lane), objects touched 1, peak raster 36 400 samples (1.755%);
+release random access to frame 40 = 0.068 ms viewport vs 13.5 ms whole (198×);
+COPY_RECT-chain viewports exact with demand near the region; tile grids
+partition frames exactly; 12 random movies × 4 random views per frame
+byte-equal to the crop; hostile geometry/index/residual forms typed; no wire
+change. Receipt + evidence: `docs/phase-s.md`,
+`evidence/campaigns/phase-s-partial-…/`.
+
 ## In progress
 
-(none — Phase R sealed; Phase S is next)
+(none — Phase S sealed; Phase T is next)
 
 ## Correct, decided, waiting
 
@@ -359,6 +383,23 @@ a typed non-consecutive-interval error at feed, while a semantically
 parseable flip is caught by the integrity digest — both bounded; synthetic
 small-canvas courts only, no natural-video claim (§72).
 
+Phase S additions: partial decode replays state transitions for every level
+0..=idx (identical to whole-frame replay); the measured saving is the raster
+lane, and levels with empty demand are skipped entirely (a pure-procedural
+stream's deep frame costs one region paint); the demand plan is an
+over-approximation (union over all copy destinations incl. shadowed ones;
+residuals add no demand) that is always exact-output-safe and saturates to
+the whole canvas past the span budget; residual containers on a demanded
+level are decoded/validated whole (bounds always vs the canvas) so
+residual-heavy frames see smaller relative savings (measured honestly in
+`residual_samples_written`); documented audit boundary — sub-frame views
+validate only content contributing to the region (out-of-view poison is not
+audited; whole-frame decode and `View::FullFrame` remain the canonical audit,
+byte- and error-identical by construction); synthetic authored courts only —
+no natural-video or universal-speedup claim (§72), and §66 direct scanout
+remains a hypothesis whose prerequisite (correct, measured partial
+materialization) is this phase.
+
 Closed by Phase O: stable residuals previously paid one-shot per frame for
 the life of a repeated difference — residual promotion now converts a run of
 identical one-shot blocks into one persistent overlay + the unchanged lane
@@ -371,7 +412,7 @@ encoder output (recorded, Phase O receipt).
 
 v1 `.vole` grammar (docs/format-v1.md), materializer painter semantics
 (including palette-index resolution, the Phase-L affine source map, the
-Phase-M additive transform-residual algebra, and the Phase-N generator
+Phase-M additive transform-residual algebra, the Phase-N generator
 programs), time model (explicit advances
 only — never implicit stepping), limits
 profile 1, integrity trailer, rANS normative constants (docs/phase-f.md),
@@ -388,7 +429,9 @@ kind tags HEADER 0x00 / OBJECT 0x01 / PALETTE 0x02 / CHECKPOINT 0x03 /
 INTERVAL 0x04 / INTEGRITY 0x7E, dense seq from 0, emission order `HEADER
 OBJECT* PALETTE* CHECKPOINT INTERVAL* INTEGRITY`, payloads == v1 record
 bytes) — a framing layer over the standalone stream; the `.vole` format
-itself is unchanged. v1
+itself is unchanged. Phase S introduces no wire or format change (views are
+requests, not stream syntax — documented in `docs/materialization.md` /
+`docs/phase-s.md`). v1
 continues to *extend* per sealed phase (tags 0x21–0x30, residual block kinds
 0–2, object tag 0x07, Phase-P tag 0x09 / feature bit 0x1) with old streams
 re-parsed unchanged.

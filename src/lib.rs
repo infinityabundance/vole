@@ -44,6 +44,7 @@ pub mod limits;
 pub mod materialize;
 pub mod object;
 pub mod optimize;
+pub mod partial;
 pub mod pixel;
 pub mod rans;
 pub mod script;

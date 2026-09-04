@@ -64,15 +64,67 @@ against an independently re-derived reference in `proof/`.
 
 ## Views
 
-`View::FullFrame` is the only materialization target exposed by Phase A, but
-the API is value-based so `Tile`/`Rect`/`Scale` views can be added later
-without reshaping the decoder (`docs/architecture.md` §5). Partial
-materialization claims are an *empirical* later-phase question, not an
-assumed win.
+`View` is a typed materialization target (`src/view.rs`): `FullFrame`, an
+arbitrary in-canvas sub-rectangle (`Rect`), and one tile of a canonical tile
+grid (`Tile`). Views are *requests* — never stream syntax — and every view is
+defined by one contract: the returned samples are exactly the samples a
+whole-frame decode would place in the view's in-canvas region (the view's own
+top-left becomes the returned canvas origin).
+
+### Whole-frame (canonical audit)
+
+`View::FullFrame` (and any box covering the whole canvas) replays the
+canonical step machinery (`materialize_full` + the interval stepper): it is
+byte- and error-identical with whole-frame decode by construction. Whole-frame
+decode remains the canonical audit path for a stream.
+
+### Partial views (Phase S)
+
+A sub-frame view (`Rect`/`Tile`, `src/partial.rs`) is materialized by a
+**demand plan** followed by a forward replay. Frame semantics make this
+exact: every interval canvas op (COPY_RECT/MOVE_RECT/residual) reads **only**
+the immediately previous frame and overpaints the freshly materialized base,
+so the value of frame `t` at a position is the base state paint, the value of
+frame `t−1` at the source of the **last** canvas op covering the position, or
+the value carried by that op itself. Walking backward from the requested
+region therefore yields, per level, exactly the region of the previous frame
+that the next frame reads; the forward replay then paints only those regions
+(background, instances, overlay) and applies the ops over them. Levels whose
+region is empty are skipped entirely, and state transitions are replayed
+exactly as in whole-frame decode. Demand regions are merged per-row spans
+that saturate to the whole canvas beyond a bookkeeping budget — a sound
+over-approximation that keeps hostile streams in the whole-frame memory
+class.
+
+Measured work is reported by `PartialStats`: painted sample writes
+(base/copy/residual), levels materialized, frames replayed, distinct objects
+touched (the decode-time analogue of object fetches — an object wholly
+outside the demanded region is never touched), and peak per-level raster
+memory.
+
+### Audit-scope semantics of a partial view
+
+A partial view validates everything that contributes to its region: state
+transitions, op framing, and whole residual containers (a residual block's
+point list is fully validated and a kind-2 transform residual's DC/AC streams
+are fully decoded; bounds are always checked against the canvas, never the
+partial frame's box). Content that never contributes to the view — an
+instance painted wholly outside the demanded region, an affine overflow
+outside it, or a residual error on a level the view never touches — is not
+audited. A view is therefore a *sampling* contract: its samples are exact
+and agree with whole-frame decode sample-for-sample, while whole-frame
+decode remains the canonical audit path. Courts pin both sides of this
+boundary (`tests/phase_s.rs`).
+
+Partial materialization claims are an *empirical* question, measured in
+`docs/phase-s.md`: on the sealed 1920×1080 court a tracking 260×140 viewport
+painted 2.72% of the whole-frame lane and reached frame 40 in 0.068 ms vs
+13.5 ms for the whole-frame random-access path (release example
+`examples/partial_proof.rs`).
 
 ## Cost
 
 Materialization of a *full view* is O(canvas) fill plus the painted object
-pixels (clipped). Phase-A reporting measures full-frame latency; tile/region
-latency and cache effects are courted once partial views exist.
+pixels (clipped). A partial view is O(replayed transitions) plus O(region
+paint) — the raster work tracks the region of interest, not the canvas.
 `#![forbid(unsafe_code)]` and checked arithmetic hold on every path.

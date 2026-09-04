@@ -1,0 +1,19 @@
+   Compiling vole-video v0.14.0 (/mnt/1tb_kingston/vole)
+    Finished `release` profile [optimized] target(s) in 1.57s
+     Running `target/release/examples/partial_proof`
+court big-track 1920x1080 x41:
+  whole-frame sequential decode: 14.7 ms (writes >= 85017600 samples = 81 MiB raster)
+  random access frame 40: whole 14.7 ms; viewport (260x140) 0.080 ms (183x)
+    viewport painted 56400 samples (whole-frame lower bound 85017600), peak raster 36400 samples (of 2073600)
+    objects touched 1 (the tracked sprite only; a 600x900 decoration never intersects the viewport)
+  all-41 viewport frames: 3.2 ms total, 2312400 samples painted (2.720% of the 85017600-sample whole-frame lane)
+
+court scroll-chain (13 frames, copy rects every interval):
+  viewport lane painted 102544 samples total; every view equals the whole-frame crop byte-for-byte
+
+court tile grid 24x24 of frame 8 (96x96):
+  16 tiles partition the frame exactly; 0.0 ms (each tile is a demand-planned partial decode)
+
+peak working raster of a viewport decode: 36400 samples (1.755% of the 2073600 sample full frame)
+
+partial proof: OK

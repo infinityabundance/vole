@@ -60,6 +60,10 @@ independently re-derived reference in `proof/`.
 | Phase R: packet loss is a typed `TransportGap` with nothing applied; retransmission from the gap recovers the exact stream; checkpoint rollback replays within the v1 envelope (measured 24 intervals ≤ 1 000 000 bound) | PASS |
 | Phase R: hostile transport forms typed — truncated frame, bad length, unknown kind, header-not-first, interval-before-checkpoint, declaration-after-checkpoint, duplicate checkpoint, non-consecutive interval, duplicate/short integrity, store-backed stream refused; corruption courts bounded (payload flip → typed feed error, digest flip → verify false) | PASS |
 | Phase R (§33): per-interval bytes track structural events on the deterministic 25-frame court (static 26 B framed → one palette patch 37 B → one new instance 43 B; 24-interval lane 756 B < half of one raster frame; whole transport 1 488 framed B < one raster frame); unchanged-lane amortization 29 B/frame over 225 frames — measured, never zeroed | PASS |
+| Phase S: partial `Rect`/`Tile` views equal the whole-frame crop sample-for-sample on every frame of every stream shape (COPY_RECT chains, RAW/rANS residuals, palette content, affine rotation, generator drift, 12 deterministic random movies × 4 random views each); `FullFrame` view == canonical whole-frame decode | PASS |
+| Phase S: tile grids partition frames exactly; decoder/state-level view APIs agree with `Decoder::materialize` crops; stats internally consistent (painted == base+copy+residual; residual writes only in-region) | PASS |
+| Phase S (audit-scope): index poison inside the view → `OutOfBounds` identical to whole-frame decode; outside the view → clean samples (documented sampling contract); unsorted residual errors identical for any view of its frame; out-of-range frames/views and zero-size geometry typed | PASS |
+| Phase S (work): 1920×1080 41-frame viewport court — one level painted per decode (56 400 samples vs ≥ 2 073 600 whole-frame), objects touched 1, 2.72% of the whole-frame lane, peak raster 36 400 samples; release random access frame 40 = 0.068 ms vs 13.5 ms whole (198×); copy-chain demand exact and bounded | PASS |
 
 ## Goldens
 

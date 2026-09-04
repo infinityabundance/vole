@@ -526,7 +526,12 @@ fn paint_index_raster(
     Ok(())
 }
 
-/// Entry matching [`View`]. Phase A supports `FullFrame` only.
+/// Entry matching [`View`]. `FullFrame` materializes the whole canvas; a
+/// `Rect`/`Tile` (Phase S partial views) returns the exact state samples in
+/// the view's in-canvas region as a fresh canvas whose origin is the region's
+/// top-left. State-level views carry no timeline; for a *stream* frame at
+/// index `idx` use [`crate::partial::materialize_view`], which additionally
+/// resolves interval canvas-op history exactly.
 pub fn materialize(
     state: &State,
     view: View,
@@ -538,5 +543,12 @@ pub fn materialize(
         View::FullFrame => Ok(MaterializedFrame {
             canvas: materialize_full(state, width, height, limits)?,
         }),
+        View::Rect { .. } | View::Tile { .. } => {
+            let clip = view.clip(width, height)?.ok_or(VoleError::ApiConstraint(
+                "view does not intersect the canvas",
+            ))?;
+            let canvas = crate::partial::state_crop(state, clip, width, height, limits)?;
+            Ok(MaterializedFrame { canvas })
+        }
     }
 }

@@ -68,7 +68,7 @@ pub(crate) fn step_frame(
 
 /// Whether a transition is a frame-compositor (canvas) op rather than a state
 /// mutation.
-fn is_canvas_op(tr: &Transition) -> bool {
+pub(crate) fn is_canvas_op(tr: &Transition) -> bool {
     matches!(
         tr,
         Transition::CopyRect { .. } | Transition::MoveRect { .. } | Transition::Residual { .. }
@@ -138,5 +138,20 @@ impl Decoder {
         all.into_iter()
             .nth(idx as usize)
             .ok_or(VoleError::OutOfBounds)
+    }
+
+    /// Materialize frame `idx` restricted to `view` (Phase S partial
+    /// materialization). Returns the exact samples a whole-frame decode of
+    /// `idx` would place in the view's in-canvas region, plus measured decode
+    /// work ([`crate::partial::PartialStats`]). A `FullFrame` view replays
+    /// the canonical step machinery (byte- and error-identical to whole-frame
+    /// decode); a sub-frame view runs the demand-planned partial decoder
+    /// (`crate::partial::materialize_view`).
+    pub fn materialize_view(
+        &self,
+        idx: u64,
+        view: crate::view::View,
+    ) -> Result<crate::partial::PartialView, VoleError> {
+        crate::partial::materialize_view(&self.parsed.parsed, idx, view)
     }
 }
