@@ -69,6 +69,19 @@ pub(crate) const TAG_OBJECT_GENERATOR: u8 = 0x07;
 /// Layout mirrors `TAG_CHECKPOINT` with one extra `palette:u32` per instance
 /// record (0 = unbound). Only streams with at least one binding use it.
 pub(crate) const TAG_CHECKPOINT_BINDINGS: u8 = 0x08;
+/// External object declaration (Phase P): `[tag][id:u32][content_id:32]`. The
+/// immutable object's canonical record is *not* embedded in the stream; it is
+/// fetched by content id through the bound [`crate::store::ObjectStore`] during
+/// parse. A stream carrying this tag is deliberately **not standalone** and
+/// must set [`FEAT_EXTERNAL_OBJECTS`]; decoding without a store is a typed
+/// error.
+pub(crate) const TAG_OBJECT_EXTERN: u8 = 0x09;
+/// Feature bit: one or more external object declarations (`TAG_OBJECT_EXTERN`)
+/// appear in the stream. v1 feature bits are all-mandatory and fail closed:
+/// a decoder that does not implement the bit rejects the stream, and a stream
+/// that sets the bit without an external declaration (or vice versa) is
+/// non-canonical.
+pub(crate) const FEAT_EXTERNAL_OBJECTS: u32 = 0x0000_0001;
 // Transition tags.
 pub(crate) const TR_CREATE_INSTANCE: u8 = 0x21;
 pub(crate) const TR_SET_POSITION: u8 = 0x22;
@@ -101,6 +114,14 @@ pub struct Header {
     pub width: u32,
     /// Rows of the canonical Gray8 view.
     pub height: u32,
+}
+
+impl Header {
+    /// Feature bits carried by the stream (all mandatory; unknown bits already
+    /// failed the header read).
+    pub(crate) fn feature_bits(&self) -> u32 {
+        self.feature_bits
+    }
 }
 
 impl Header {
@@ -141,7 +162,9 @@ fn read_header(r: &mut ByteReader<'_>) -> Result<Header, VoleError> {
     if limit_profile != LIMIT_PROFILE_V1 {
         return Err(VoleError::UnsupportedLimitProfile);
     }
-    if feature_bits != 0 {
+    // v1 feature bits are mandatory and fail closed: only the Phase-P external-
+    // objects bit is known to this decoder; any other bit is unsupported.
+    if feature_bits & !FEAT_EXTERNAL_OBJECTS != 0 {
         return Err(VoleError::UnsupportedFeature);
     }
     Ok(Header {
@@ -236,7 +259,27 @@ impl ParsedStream {
 }
 
 /// Parse and validate a whole file (verifies the trailing BLAKE3 digest).
+/// Streams declaring external objects (`TAG_OBJECT_EXTERN`, Phase P) cannot be
+/// parsed without a store binding and fail with [`VoleError::StoreRequired`].
 pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
+    parse_stream_inner(bytes, None)
+}
+
+/// Parse a whole file, resolving every external object declaration through
+/// `store` (Phase P). Store-less parse of such a stream is a typed error; the
+/// resolved objects are ordinary [`Object`]s, so replay/materialization never
+/// touches the store again — provenance stays behind the abstraction.
+pub(crate) fn parse_stream_resolving(
+    bytes: &[u8],
+    store: &dyn crate::store::ObjectStore,
+) -> Result<ParsedStream, VoleError> {
+    parse_stream_inner(bytes, Some(store))
+}
+
+fn parse_stream_inner(
+    bytes: &[u8],
+    store: Option<&dyn crate::store::ObjectStore>,
+) -> Result<ParsedStream, VoleError> {
     if bytes.len() < 32 {
         return Err(VoleError::Truncated);
     }
@@ -258,6 +301,7 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
     let mut next_t = 0u64;
     let mut object_ids: HashSet<u32> = HashSet::new();
     let mut palette_ids: HashSet<u32> = HashSet::new();
+    let mut extern_count: usize = 0;
 
     while r.remaining() > 0 {
         let tag = r.u8()?;
@@ -330,6 +374,34 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
                 if !object_ids.insert(id.0) {
                     return Err(VoleError::DuplicateId);
                 }
+                cur.declare_object(id, obj)?;
+            }
+            TAG_OBJECT_EXTERN => {
+                // Phase P: the object payload lives in a store, referenced by
+                // content id. A stream carrying this tag is not standalone.
+                if saw_checkpoint || header.feature_bits() & FEAT_EXTERNAL_OBJECTS == 0 {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+                let id = ObjectId(r.pull::<u32>()?);
+                if !object_ids.insert(id.0) {
+                    return Err(VoleError::DuplicateId);
+                }
+                extern_count += 1;
+                let raw = r.take(32)?;
+                let mut cid_bytes = [0u8; 32];
+                cid_bytes.copy_from_slice(raw);
+                let cid = crate::identity::ContentId::from_array(cid_bytes);
+                // Fetch through the store abstraction: the materializer never
+                // learns whether an object's bytes came from the file or a
+                // store — only that the content id matches the bytes.
+                let rec = store
+                    .ok_or(VoleError::StoreRequired)?
+                    .get(cid, limits.max_object_bytes + 16)?
+                    .ok_or(VoleError::StoreObjectMissing)?;
+                if crate::integr::digest(&rec) != *cid.as_bytes() {
+                    return Err(VoleError::IntegrityMismatch);
+                }
+                let obj = Object::from_canonical_record(&rec, &limits)?;
                 cur.declare_object(id, obj)?;
             }
             TAG_PALETTE => {
@@ -662,6 +734,12 @@ pub fn parse_stream(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
     if !saw_checkpoint {
         return Err(VoleError::NonCanonicalEncoding);
     }
+    // Canonicality: the external-objects feature bit is present iff at least
+    // one external declaration appeared (never a marker without content, never
+    // content without the marker).
+    if (header.feature_bits() & FEAT_EXTERNAL_OBJECTS != 0) != (extern_count > 0) {
+        return Err(VoleError::NonCanonicalEncoding);
+    }
     let initial = initial_opt.ok_or(VoleError::NonCanonicalEncoding)?;
     let parsed = ParsedStream::new(header, limits, initial, intervals);
     // Integrity protects every byte of the file after structural checks; run it
@@ -677,6 +755,10 @@ pub struct StreamWriter {
     width: u32,
     height: u32,
     objects: Vec<(ObjectId, Object)>,
+    /// Phase P external object declarations: id → content id. Payloads are not
+    /// embedded; the stream carries the reference and must set
+    /// `FEAT_EXTERNAL_OBJECTS` (done in [`StreamWriter::finish`]).
+    externals: Vec<(ObjectId, crate::identity::ContentId)>,
     palettes: Vec<(crate::state::PaletteId, Vec<u8>)>,
     background: u8,
     have_checkpoint: bool,
@@ -691,6 +773,7 @@ impl StreamWriter {
             width,
             height,
             objects: Vec::new(),
+            externals: Vec::new(),
             palettes: Vec::new(),
             background: 0,
             have_checkpoint: false,
@@ -700,10 +783,32 @@ impl StreamWriter {
 
     /// Declare one pre-checkpoint object.
     pub fn declare_object(mut self, id: ObjectId, obj: Object) -> Result<Self, VoleError> {
-        if self.have_checkpoint || self.objects.iter().any(|(i, _)| *i == id) {
+        if self.have_checkpoint
+            || self.objects.iter().any(|(i, _)| *i == id)
+            || self.externals.iter().any(|(i, _)| *i == id)
+        {
             return Err(VoleError::NonCanonicalEncoding);
         }
         self.objects.push((id, obj));
+        Ok(self)
+    }
+
+    /// Declare one pre-checkpoint **external** object (Phase P): a reference to
+    /// store-held canonical record bytes by content id. The stream is not
+    /// standalone once any external is declared (decoding requires the
+    /// [`crate::store::ObjectStore`] that holds the records).
+    pub fn declare_external(
+        mut self,
+        id: ObjectId,
+        cid: crate::identity::ContentId,
+    ) -> Result<Self, VoleError> {
+        if self.have_checkpoint
+            || self.objects.iter().any(|(i, _)| *i == id)
+            || self.externals.iter().any(|(i, _)| *i == id)
+        {
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+        self.externals.push((id, cid));
         Ok(self)
     }
 
@@ -784,11 +889,16 @@ impl StreamWriter {
         Ok(self)
     }
 
-    /// Write all pre-checkpoint declarations (objects, then palettes) in
-    /// declaration order.
+    /// Write all pre-checkpoint declarations (objects, external references,
+    /// then palettes) in declaration order.
     fn write_decls(&mut self) -> Result<(), VoleError> {
         for (id, obj) in &self.objects {
             write_object_decl(&mut self.sink, *id, obj)?;
+        }
+        for (id, cid) in &self.externals {
+            self.sink.byte(TAG_OBJECT_EXTERN)?;
+            self.sink.push(id.0)?;
+            self.sink.extend(cid.as_bytes())?;
         }
         for (id, entries) in &self.palettes {
             self.sink.byte(TAG_PALETTE)?;
@@ -824,7 +934,11 @@ impl StreamWriter {
             format_version: FORMAT_VERSION,
             universe_id: UNIVERSE_V1,
             limit_profile: LIMIT_PROFILE_V1,
-            feature_bits: 0,
+            feature_bits: if self.externals.is_empty() {
+                0
+            } else {
+                FEAT_EXTERNAL_OBJECTS
+            },
             width: self.width,
             height: self.height,
         };

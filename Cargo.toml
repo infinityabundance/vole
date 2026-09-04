@@ -18,10 +18,22 @@ path = "src/main.rs"
 
 # VOLE is one, self-contained, native Rust crate. It owns its normative wire
 # format and materializer and violates no-unsafe for now. It does NOT depend on
-# DSFB or EntropyFS for normative decode; those remain conceptually separate and
-# are out-of-crate concerns.
+# DSFB for normative decode, and EntropyFS is NOT part of the standalone build:
+# an optional, default-OFF feature links the real entropyfs embeddable engine
+# behind the in-crate ObjectStore abstraction (Phase P). A standalone .vole
+# stream never requires either project.
+[features]
+default = []
+# Phase P: the EntropyFsStore adapter over the published `entropyfs` engine
+# (content-addressed blobs, hash gate, engine durability/GC). Optional by
+# design: normative decode and the EmbeddedStore never need it.
+entropyfs-store = ["dep:entropyfs"]
+
 [dependencies]
 blake3 = "1"
+# Optional store backend (Phase P). Only the embeddable engine is used
+# (no FUSE / ublk / io_uring / tracing frontends).
+entropyfs = { version = "=0.7.17", optional = true, default-features = false }
 
 # dev-dependencies: test-only oracle for byte parity courts. The normative
 # coder is owned in-crate (src/rans.rs); ryg-rans-rs is never linked into

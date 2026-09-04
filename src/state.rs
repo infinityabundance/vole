@@ -480,6 +480,13 @@ impl State {
         self.palettes.get(&id).map(|e| e.as_slice())
     }
 
+    /// Iterate the palette table in palette-id order (Phase P: the archive
+    /// walker publishes each table's entries as an immutable, content-addressed
+    /// palette-snapshot record).
+    pub fn palettes(&self) -> impl Iterator<Item = (PaletteId, &[u8])> + '_ {
+        self.palettes.iter().map(|(id, e)| (*id, e.as_slice()))
+    }
+
     /// Number of distinct palettes.
     pub fn palette_count(&self) -> usize {
         self.palettes.len()

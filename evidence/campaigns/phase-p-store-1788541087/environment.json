@@ -1,0 +1,7 @@
+{
+  "commit": "39896b9c00351377c9dcd2839f1783365b0c8967",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "platform": "Linux-7.2.2-1-cachyos-x86_64",
+  "command": "cargo run --release --features entropyfs-store --example store_proof && cargo test --all-features --test phase_p && cargo test --release --all-features --test phase_p",
+  "profile": "release"
+}

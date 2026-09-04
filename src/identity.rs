@@ -27,6 +27,12 @@ impl ContentId {
         &self.0
     }
 
+    /// Rebuild from raw bytes (the identity is validated only by use: a
+    /// malformed id simply never matches a stored blob / declared record).
+    pub const fn from_array(bytes: [u8; ID_LEN]) -> Self {
+        Self(bytes)
+    }
+
     /// Hex for receipts/JSON.
     pub fn hex(&self) -> String {
         hex_lower(&self.0)
@@ -36,8 +42,11 @@ impl ContentId {
 /// Canonical record bytes for an object (the encoder form described above),
 /// independent of its id. The tag constants mirror the format-v1 object-decl
 /// tags: `0x02` fill, `0x01` Gray8 raster, `0x05` palette-index raster,
-/// `0x07` procedural generator (Phase N).
-fn canonical_object_record(obj: &Object) -> Vec<u8> {
+/// `0x07` procedural generator (Phase N). These are also the exact payload
+/// bytes the Phase-P object store holds under this content id, and the bytes
+/// `Object::from_canonical_record` parses to rehydrate an external object
+/// declaration.
+pub(crate) fn canonical_object_record(obj: &Object) -> Vec<u8> {
     let mut out = Vec::with_capacity(16);
     if let Some(gen) = obj.generator() {
         out.push(0x07); // object-generator record tag

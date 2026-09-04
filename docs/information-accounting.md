@@ -24,10 +24,11 @@ to two inline models, one per DC/AC container).
 ## Accounting honesty rules
 
 * No shared object counts as zero: store-level physical cost and per-stream
-  attribution are reported separately once EntropyFS integration lands.
+  attribution are reported separately (Phase P, `src/store.rs`
+  `ArchiveAccounting` — see `docs/entropyfs.md` and `docs/phase-p.md`).
 * `procedural fraction` and any entropy phrasing are **engineering accounting
   metrics**, never Shannon-entropy claims.
 * Negative results remain in the ledger and are never deleted.
 
-Status: categories above PROPOSED as their phases land; the invariant "count
-everything" is in force now.
+Status: the stream-bucket ledger is in force now; the store-level ledger
+(declared / unique-payload / physical) landed in Phase P.

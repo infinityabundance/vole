@@ -216,4 +216,59 @@ impl Object {
             ObjectKindKind::Fill | ObjectKindKind::RawRaster | ObjectKindKind::Generator => None,
         }
     }
+
+    /// Parse an object from its **canonical record bytes** — the byte-for-byte
+    /// form `[kind:u8][width:u32][height:u32][payload]` that
+    /// `identity::canonical_object_record` produces, that
+    /// [`crate::identity::content_id_of`] hashes, and that the Phase-P object
+    /// store holds under that content id. Kinds mirror the v1 declaration tags
+    /// (`0x02` fill, `0x01` Gray8 raster, `0x05` palette-index raster, `0x07`
+    /// generator). Geometry and payload length are validated against `limits`;
+    /// an unknown kind, trailing bytes, or out-of-domain program parameters are
+    /// typed errors. This is the rehydration path for external object
+    /// declarations (Phase P): the store returns a record, the caller verifies
+    /// its digest against the declared content id, and the materializer sees
+    /// an ordinary [`Object`] — provenance never leaks past the store
+    /// abstraction.
+    pub fn from_canonical_record(
+        bytes: &[u8],
+        limits: &crate::limits::Limits,
+    ) -> Result<Self, VoleError> {
+        let mut r = crate::checked::ByteReader::new(bytes);
+        let kind = r.u8()?;
+        let w = r.pull::<u32>()?;
+        let h = r.pull::<u32>()?;
+        if w == 0 || h == 0 {
+            return Err(VoleError::DimensionTooLarge);
+        }
+        let n = u64::from(w)
+            .checked_mul(u64::from(h))
+            .ok_or(VoleError::ArithmeticOverflow)?;
+        if n > limits.max_object_bytes {
+            return Err(VoleError::DimensionTooLarge);
+        }
+        let obj = match kind {
+            0x01 => {
+                let data = r.take_vec(n as usize)?;
+                Object::raster(w, h, data)?
+            }
+            0x02 => {
+                let v = r.u8()?;
+                Object::fill(w, h, v)?
+            }
+            0x05 => {
+                let data = r.take_vec(n as usize)?;
+                Object::index_raster(w, h, data)?
+            }
+            0x07 => {
+                let gen = crate::generator::Generator::parse_program(&mut r)?;
+                Object::procedural(w, h, gen)?
+            }
+            _ => return Err(VoleError::NonCanonicalEncoding),
+        };
+        if r.remaining() != 0 {
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+        Ok(obj)
+    }
 }

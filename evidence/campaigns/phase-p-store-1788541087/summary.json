@@ -1,0 +1,63 @@
+{
+  "phase": "P",
+  "semantics": "optional EntropyFS persistence substrate (master brief §1/§31/§45/§46, ADR-0004). (1) ObjectStore abstraction: get/put/contains + unique_count/unique_payload_bytes/physical_bytes/sync/close; implementations EmbeddedStore (in-crate content-addressed append-only log: one record per distinct payload [cid 32][len u64][payload], hash-gated reads, named snapshot roots under roots/, mark-compact GC) and EntropyFsStore (feature entropyfs-store, default OFF: adapter over the published entropyfs embeddable engine put/get/contains/sync/compact/metrics with engine BlobId == VOLE content id == BLAKE3 of the same bytes). Sharing is by exact canonical-record identity only - never appearance. Payload kinds: object canonical records (identity::content_id_of) and palette-table snapshots (kind prefix 0xE0, collision-free by construction); rANS model tables and dictionary tables are not first-class v1 tables yet (recorded open surface). (2) Archive publish: publish_stream extracts every immutable object + palette-table snapshot of a standalone stream into the store and reports per-stream declared attribution; archive_accounting reports actual store-level physical cost vs declared attribution separately (shared state is never zeroed; dedup_saved = declared - unique payload). (3) Wire extension (additive, old streams re-parse unchanged): TAG_OBJECT_EXTERN 0x09 + header feature bit FEAT_EXTERNAL_OBJECTS 0x1; a stream that references store-held canonical records by content id is deliberately NOT standalone (store-less decode = StoreRequired; unknown bits fail closed; bit-without-extern and extern-without-bit are non-canonical). encode_stream_external / decode_with_store resolve references through the ObjectStore; each fetched record's digest is re-verified against the declared content id (IntegrityMismatch) and re-parsed via Object::from_canonical_record, so the materializer never learns an object's provenance.",
+  "candidate_gates": {
+    "identity": "BLAKE3 over canonical object record bytes (== encoder registry id)",
+    "payload_kinds": "object records 0x01/0x02/0x05/0x07; palette snapshots under 0xE0",
+    "dedup": "identical bytes -> one physical record (fresh=false)",
+    "gc_closure": "mark from the union of named roots; a blob pinned by >= 1 root is never collected; the last root drop reclaims it",
+    "extern_stream": "feature bit 0x1 required and sufficient; references resolved through the bound store at parse; digest re-checked",
+    "standalone": "unchanged: no store needed for any embedded stream; full prior suite passes untouched"
+  },
+  "courts": {
+    "embedded_dedup": {
+      "put_twice": "fresh=[true,false], unique=1",
+      "physical": "1073 B log (40 B framing + 1033 B payload) for one 32x32 logo record",
+      "content_id": "store id == identity::content_id_of(obj)"
+    },
+    "cross_video_sharing": {
+      "four videos sharing one 32x32 logo + per-video panels": "video-0 new=2 reused=0; video-1..3 new=1 reused=1",
+      "palette_videos": "identical palette tables + index object across two videos: second publish new=0 reused=1",
+      "unique_payloads": 7,
+      "declared_bytes": 6250,
+      "unique_payload_bytes": 2878,
+      "physical_bytes": 3158,
+      "dedup_saved_bytes": 3372,
+      "note": "dedup = 3x logo + 1x index object + 1x palette snapshot at the payload level; physical additionally reports the 40 B/record framing honestly"
+    },
+    "gc_closure": {
+      "roots": "video-1={a,b}, video-2={a,c}, d unreferenced",
+      "pass1": "reclaimed=50 B retained=3 (d collected)",
+      "after_drop_video1": "reclaimed=50 B retained=2 (b collected; a,c live)",
+      "after_drop_video2": "reclaimed=100 B retained=0 (full closure; live never collected)"
+    },
+    "extern_identical_materialization": {
+      "content": "11-frame 320x200 stream: generator backdrop + moving textured tile",
+      "standalone_bytes": 774,
+      "external_bytes": 428,
+      "payload_moved_out": 346,
+      "frames": 11,
+      "identical": true,
+      "storeless_decode_rejected": "StoreRequired (typed)"
+    },
+    "extern_hostile": "bit-without-extern and extern-after-checkpoint and extern-without-bit: NonCanonicalEncoding; unknown bit: UnsupportedFeature; duplicate id: DuplicateId; truncated content id: Truncated; missing object: StoreObjectMissing; digest mismatch: IntegrityMismatch (tests/phase_p.rs)",
+    "entropyfs_store": {
+      "fresh": "[true,false]",
+      "unique": 1,
+      "physical": "4018 B engine segment bytes",
+      "get_exact": true,
+      "id_matches_vole": true,
+      "reopen_durable": true
+    },
+    "hostile_store_files": "flipped payload byte -> IntegrityMismatch at open; truncated log -> Truncated; oversize record length -> Truncated; duplicate cid record -> NonCanonicalEncoding; bad header magic -> StoreFailure; absent store -> StoreFailure (tests/phase_p.rs)"
+  },
+  "all_courts_pass": true,
+  "test_count": "tests/phase_p.rs (13 courts); full gate: cargo fmt --check, cargo check --all-targets, cargo clippy --all-targets --all-features -- -D warnings, cargo test --all-features (218 tests, 0 failures, dev and release)",
+  "notes": [
+    "Recorded semantic extension: header feature bit 0x1 is now the known external-objects feature (Phase P); tests/malformed.rs feature_bits_must_be_zero re-recorded: known-bit-without-extern is NonCanonicalEncoding, unknown bits stay UnsupportedFeature. Old golden streams carry feature_bits == 0 and re-parse unchanged.",
+    "EntropyFsStore.unique_payload_bytes maps to the engine's physical.live_bytes (root-reachable canonical record bytes) and is advisory for byte-exact courts; exact payload-level accounting is asserted on the EmbeddedStore whose layout VOLE owns (engine physical numbers remain reported honestly).",
+    "Standalone invariance: no embedded stream requires a store; the full pre-Phase-P suite (205 tests) passes unchanged alongside the 13 new courts.",
+    "Materializer provenance: extern references are resolved at parse into ordinary Objects (digest-verified), so replay/materialization never touches the store; the materializer cannot tell file-resident from store-resident objects.",
+    "Recorded boundaries: model/dictionary tables are not first-class v1 tables yet (their sharing is open surface); interval palette mutations stay per-stream timeline state (only initial palette-table snapshots publish); `vole optimize` rejects store-backed streams typed (no silent rewrite of a non-standalone stream)."
+  ]
+}

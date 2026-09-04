@@ -46,10 +46,12 @@ States: `PROPOSED · IMPLEMENTED · COURT-PENDING · ADOPTED · RECORDED · REJE
 | Procedural generators | ADOPTED | Phase N (see rows above) |
 | Equivalence-preserving representation re-optimization (`vole optimize`, §44) | ADOPTED | Phase O: velocity collapse (13+len vs 13·len per linear run), trajectory collapse, residual promotion (stable one-shot residuals → persistent overlay + unchanged lane; the recorded Phase-G/K gap is closed), generator substitution (raster → program decl), duplicate merge; every rewrite is accepted only when strictly smaller AND decode-identical (M(D0)==M(D1) proven); never grows; palette streams preserved verbatim (`tests/phase_o.rs`, `examples/optimize_proof.rs`) |
 | Representation re-optimization (`vole optimize`) | ADOPTED | Phase O (see row above) |
+| Content-addressed persistence substrate — `ObjectStore` (get/put/contains + physical accounting) with `EmbeddedStore` (in-crate append-only content-addressed log, hash-gated, roots + mark-compact GC) and `EntropyFsStore` (feature `entropyfs-store`, default OFF: adapter over the real entropyfs embeddable engine; engine `BlobId` == VOLE content id) | ADOPTED | Phase P: cross-video exact-object sharing — four videos sharing one 32×32 logo + palette tables/index objects across videos dedup to one physical record each (unique payloads 7, dedup saved 3 372 B exact at the payload level on the court); declared vs unique vs physical reported separately, shared state never zeroed (§31); GC closure measured (live never collected; last root drop ⇒ full closure); hostile store files typed at open (`tests/phase_p.rs`, `src/store.rs`) |
+| External object declarations (tag 0x09 + feature bit 0x1): store-backed streams whose payloads leave the file; the materializer never learns object provenance | ADOPTED | Phase P: `encode_stream_external`/`decode_with_store` — 11-frame court 774 B → 428 B with **byte-identical** materialization; store-less decode `StoreRequired`; missing record `StoreObjectMissing`; digest re-check `IntegrityMismatch`; bit/tag/order/dup/truncated wire forms typed; such streams are deliberately not standalone (`tests/phase_p.rs`) |
 | Partial materialization (tile/rect) | PROPOSED | pending |
 | Resolution-independent procedural state | PROPOSED | pending |
 | DSFB-governed search | PROPOSED (non-normative) | pending courts |
-| EntropyFS persistence / cross-video sharing | PROPOSED (optional substrate) | pending |
+| rANS model / dictionary table cross-video sharing | PROPOSED | v1 has no separate model/dictionary tables yet (recorded open surface; object records + palette snapshots are the Phase-P shareable units) |
 | Procedural transport streaming | PROPOSED | pending |
 | Archive / perceptual profiles | PROPOSED | pending (last) |
 

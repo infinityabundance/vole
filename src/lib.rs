@@ -7,11 +7,13 @@
 //! in `research/vole_procedural_video_prior_art.md`).
 //!
 //! The normative crate contains the representation, the manual wire format,
-//! the deterministic materializer, the typed-limits execution envelope, and
-//! (over later phases) the encoder, reverse-proceduralizer, search governor,
-//! and store abstraction. DSFB (search intelligence) and EntropyFS
-//! (persistence substrate) are deliberately *not* normative dependencies and
-//! are not part of this crate.
+//! the deterministic materializer, the typed-limits execution envelope, the
+//! encoder, the reverse-proceduralizer, the search governor, and the
+//! content-addressed object-store abstraction (`store`). DSFB (search
+//! intelligence) is never a normative dependency; EntropyFS (persistence
+//! substrate) is not part of the standalone build — an optional, default-OFF
+//! `entropyfs-store` feature links the real entropyfs engine behind the same
+//! `ObjectStore` abstraction (Phase P).
 //!
 //! Safety posture: the normative implementation forbids unsafe code. A
 //! conforming decoder treats every input stream as hostile: it returns typed,
@@ -44,6 +46,7 @@ pub mod optimize;
 pub mod pixel;
 pub mod rans;
 pub mod state;
+pub mod store;
 pub mod time;
 pub mod trajectory;
 pub mod transform;

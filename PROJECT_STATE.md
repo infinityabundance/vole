@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase O sealed (see git log)
-**Current phase:** O (representation re-optimization) — SEALED. Next: Phase P (EntropyFS persistence).
+**Current head:** Phase P sealed (see git log)
+**Current phase:** P (EntropyFS persistence) — SEALED. Next: Phase Q (native procedural ingest API).
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -200,16 +200,44 @@ full-canvas raster gradient decl 24 667 → 101 B; eight identical tiles
 via the CLI — exactly the Phase-E velocity baseline. Receipt + evidence:
 `docs/phase-o.md`, `evidence/campaigns/phase-o-optimize-…/`.
 
+Phase P (this head): the **optional content-addressed persistence substrate**
+(`src/store.rs`, §1/§31/§45/§46). `ObjectStore` — get/put/contains +
+`unique_count`/`unique_payload_bytes`/`physical_bytes`/sync/close; the
+materializer and parser obtain object bytes only through it, so provenance
+(file / store / cache) never leaks into normative semantics.
+`EmbeddedStore`: in-crate content-addressed append-only log (`[cid 32][len
+u64][payload]*`, hash-gated reads, bounded records, named snapshot roots,
+mark-compact GC — live blobs never collected, last root drop ⇒ full
+closure). `EntropyFsStore`: feature `entropyfs-store` (default OFF) — an
+adapter over the published `entropyfs` embeddable engine, whose `BlobId` for
+a payload is the same BLAKE3 as VOLE's content id. Sharing is by exact
+canonical-record identity: object records (`content_id_of`) and palette-table
+snapshots (`0xE0`-prefixed) dedup to one physical record per distinct payload
+across videos, with declared vs unique-payload vs physical reported
+separately (§31 — shared state never zeroed). Measured: four videos sharing
+one 32×32 logo + palette/index sharing across two videos — unique payloads 7,
+declared 6 250 B, unique 2 878 B, physical 3 158 B, dedup saved 3 372 B
+exact at the payload level; GC closure measured (50/50/100 B reclaimed);
+hostile store files typed. **Additive wire extension**: extern object decl
+tag 0x09 + feature bit 0x1 — store-backed streams whose payloads leave the
+file (`encode_stream_external`, `decode_with_store`); the 11-frame court
+drops 774 → 428 B with **byte-identical** materialization; store-less decode
+`StoreRequired`, missing record `StoreObjectMissing`, digest re-check
+`IntegrityMismatch`, unknown bits fail closed; such streams are deliberately
+not standalone and old streams (`feature_bits == 0`) re-parse unchanged.
+Receipt + evidence: `docs/phase-p.md`,
+`evidence/campaigns/phase-p-store-…/`.
+
 ## In progress
 
-(none — Phase O sealed; Phase P is next)
+(none — Phase P sealed; Phase Q is next)
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase P optional
-EntropyFS persistence → Phase Q native procedural ingest API → Phase R
+Phase Q
+native procedural ingest API → Phase R
 procedural transport → Phase S partial materialization → Phase T archive
 profile → Phase U perceptual profile (last).
 
@@ -249,6 +277,20 @@ seeded noise is author-only and never discovered by the inverse encoder —
 the measured RAW flattening for unknowable noise is structural, not a
 compression claim (Phase N receipt).
 
+Phase P additions: publish covers object records and palette-table snapshots
+of the checkpoint state only — interval palette mutations stay per-stream
+timeline state, and v1 has no separate rANS model / dictionary tables yet
+(their cross-video sharing is recorded open surface, never claimed);
+`EntropyFsStore.unique_payload_bytes` maps to the engine's
+`physical.live_bytes` and is advisory — byte-exact payload accounting is
+asserted on the `EmbeddedStore`, whose layout VOLE owns; `vole optimize`
+operates on standalone streams only (store-backed streams rejected typed);
+crash-tolerance of the court-grade `EmbeddedStore` log is out of scope (the
+entropyfs engine is the crash-durable substrate); header feature-bit 0x1 is
+now a *known* feature (the `feature_bits_must_be_zero` malformed court was
+re-recorded: known-bit-without-extern ⇒ NonCanonical, unknown bits ⇒
+Unsupported) (Phase P receipts).
+
 Closed by Phase O: stable residuals previously paid one-shot per frame for
 the life of a repeated difference — residual promotion now converts a run of
 identical one-shot blocks into one persistent overlay + the unchanged lane
@@ -267,6 +309,12 @@ only — never implicit stepping), limits
 profile 1, integrity trailer, rANS normative constants (docs/phase-f.md),
 transform constants (docs/phase-m.md: kind-2 residual block grammar, lifting
 multipliers, transform id 0), generator constants (docs/phase-n.md:
-generator kinds, parameter domains, program wire bytes). v1
+generator kinds, parameter domains, program wire bytes), Phase-P store and
+external-declaration constants (docs/phase-p.md: store header "VSTO"+1,
+log record framing [cid 32][len u64][payload], 40 B/record, root files of
+sorted 32-byte cids, palette-snapshot kind 0xE0, `TAG_OBJECT_EXTERN 0x09`,
+`FEAT_EXTERNAL_OBJECTS 0x1`, canonical record grammar parsed by
+`Object::from_canonical_record`). v1
 continues to *extend* per sealed phase (tags 0x21–0x30, residual block kinds
-0–2, object tag 0x07) with old streams re-parsed unchanged.
+0–2, object tag 0x07, Phase-P tag 0x09 / feature bit 0x1) with old streams
+re-parsed unchanged.

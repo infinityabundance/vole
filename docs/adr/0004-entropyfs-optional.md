@@ -20,6 +20,12 @@ or memory except through that storage abstraction.
 - A standalone `.vole` decodes fully without EntropyFS.
 - Objects/shared state are physically accounted (`store-level physical cost`)
   separately from per-stream attribution; shared state is never zero-cost.
-- Storage transactions never leak into normative video semantics. EntropyFS
-  integration is future Phase-P/P+ work, tracked in `PROJECT_STATE.md`; it
-  does not block Phase A.
+- Storage transactions never leak into normative video semantics.
+
+Implementation status: **landed in Phase P** — the `ObjectStore` abstraction,
+`EmbeddedStore`, the feature-gated `EntropyFsStore` adapter over the real
+entropyfs engine, cross-video exact-object/palette sharing with
+physical-vs-declared accounting, GC closure, and the additive external-object
+declaration form are sealed (`src/store.rs`, `tests/phase_p.rs`,
+`docs/entropyfs.md`, `docs/phase-p.md`). The decision itself predates the
+phase and never blocked Phase A.

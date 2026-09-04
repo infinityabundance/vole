@@ -1,0 +1,15 @@
+embedded-store: put-twice fresh=[true,false] unique=1 physical=1073B payload=1033B
+publish video-0: declared=1426B objects=2 (new=2 reused=0)
+publish video-1: declared=1426B objects=2 (new=1 reused=1)
+publish video-2: declared=1426B objects=2 (new=1 reused=1)
+publish video-3: declared=1426B objects=2 (new=1 reused=1)
+publish palette-video-0: declared=273B palette_snapshots=1 (new=1) objects=1 (new=1 reused=0)
+publish palette-video-1: declared=273B palette_snapshots=1 (new=0) objects=1 (new=0 reused=1)
+archive: unique_payloads=7 unique_payload_bytes=2878B physical=3158B declared=6250B dedup_saved=3372B
+gc after roots video-1=3c1ddf7e,ea2c25a7 video-2=3c1ddf7e,87ec5ec0: reclaimed=50B retained=3 (d collected)
+gc after dropping video-1: reclaimed=50B retained=2 (b collected, a+c live)
+gc after dropping video-2: reclaimed=100B retained=0 (full closure)
+extern: standalone=774B external=428B payload_moved_out=346B frames=11 identical=true storeless_decode_rejected=true
+entropyfs-store: fresh=[true,false] unique=1 physical=4018B get_exact=true id_matches_vole=true
+entropyfs-store: reopen durable=true
+store proof: OK

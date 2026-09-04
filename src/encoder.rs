@@ -165,6 +165,111 @@ fn validate_timeline(
     Ok(())
 }
 
+/// Encode a procedural stream whose immutable objects are **external**
+/// references (Phase P): each object is declared by its content id and its
+/// canonical record bytes must be held by the [`crate::store::ObjectStore`]
+/// used to decode the stream. The produced stream is deliberately **not
+/// standalone**: it sets the external-objects feature bit, and store-less
+/// decode fails with [`VoleError::StoreRequired`]. The timeline is validated
+/// structurally (duplicate ids, unknown references, ordering); full content
+/// validation happens at decode time when the store resolves every reference
+/// and re-verifies each content id against the fetched record bytes.
+pub fn encode_stream_external(
+    width: u32,
+    height: u32,
+    background: u8,
+    externs: &[(u32, crate::identity::ContentId)],
+    checkpoint: &[Instance],
+    timeline: &[(u64, Vec<Transition>)],
+) -> Result<Vec<u8>, VoleError> {
+    validate_external_timeline(width, height, background, externs, checkpoint, timeline)?;
+    let mut wr = StreamWriter::begin(width, height).background(background);
+    for (id, cid) in externs {
+        wr = wr.declare_external(ObjectId(*id), *cid)?;
+    }
+    wr = wr.checkpoint_with(checkpoint)?;
+    for (t, trs) in timeline {
+        wr = wr.interval(Interval(*t), trs)?;
+    }
+    wr.finish()
+}
+
+/// Structural validation for an external-references stream. Placeholder
+/// objects stand in for the (store-held) contents so every reference,
+/// ordering, and budget rule the normative encoder enforces is checked; the
+/// placeholder geometry never leaves this function.
+#[allow(clippy::too_many_arguments)] // mirrors the encode_* surface
+fn validate_external_timeline(
+    width: u32,
+    height: u32,
+    background: u8,
+    externs: &[(u32, crate::identity::ContentId)],
+    checkpoint: &[Instance],
+    timeline: &[(u64, Vec<Transition>)],
+) -> Result<(), VoleError> {
+    let _ = (width, height, background); // geometry guarded by writer + parser
+    let mut seen = std::collections::HashSet::new();
+    for (id, _) in externs {
+        if !seen.insert(*id) {
+            return Err(VoleError::DuplicateId);
+        }
+    }
+    let mut st = State::new(Interval::ZERO);
+    for (id, _) in externs {
+        // Placeholder fill: `create_instance` only requires the id to exist;
+        // contents are resolved and re-validated by `decode_with_store`.
+        st.declare_object(ObjectId(*id), Object::fill(1, 1, 0)?)?;
+    }
+    for inst in checkpoint {
+        st.create_instance(inst.id, inst.object_id, inst.x, inst.y)?;
+    }
+    let mut prev_t = 0u64;
+    let limits = crate::limits::Limits::default();
+    let mut advance_work: u64 = 0;
+    let mut trajectory_work: u64 = 0;
+    let mut interval_no = 0u64;
+    for (t, trs) in timeline {
+        if *t == 0 || *t <= prev_t {
+            return Err(VoleError::NonConsecutiveInterval);
+        }
+        prev_t = *t;
+        interval_no += 1;
+        limits.check_interval_distance(interval_no)?;
+        if trs.len() as u64 > u64::from(limits.max_transitions_per_interval) {
+            return Err(VoleError::MaterializationBudgetExceeded);
+        }
+        for tr in trs {
+            if let Transition::Residual { block } = tr {
+                if block.first() == Some(&crate::rans::KIND_TSF) {
+                    crate::transform::check_block(block, limits.max_residual_bytes, width, height)?;
+                } else {
+                    crate::rans::check_block(block, limits.max_residual_bytes)?;
+                }
+            }
+            if let Transition::SetTrajectory { segments, .. } = tr {
+                crate::trajectory::check_program(segments, &limits)?;
+            }
+            if let Transition::AdvanceTranslations = tr {
+                advance_work += st.moving_count() as u64;
+                if advance_work > limits.max_transition_work {
+                    return Err(VoleError::MaterializationBudgetExceeded);
+                }
+            }
+            if let Transition::AdvanceTrajectories = tr {
+                trajectory_work += st.trajectory_count() as u64;
+                if trajectory_work > limits.max_trajectory_work {
+                    return Err(VoleError::MaterializationBudgetExceeded);
+                }
+            }
+            tr.apply(&mut st)?;
+            if let Transition::PatchSparse { .. } = tr {
+                limits.check_overlay_points(st.overlay_len() as u64)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// A small procedural source helper returning an [`InstanceId`] for a created
 /// instance, mirroring the accepted direct-ingest shape (used by tooling and
 /// courts). `id` is the caller-chosen instance identity.

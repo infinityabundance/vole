@@ -7,7 +7,7 @@
 
 use crate::{
     error::VoleError,
-    format::{parse_stream, ParsedStream},
+    format::{parse_stream, parse_stream_resolving, ParsedStream},
     materialize,
     pixel::Canvas,
     state::State,
@@ -19,6 +19,20 @@ use crate::transition::Transition;
 /// Parse a standalone `.vole` stream.
 pub fn decode_bytes(bytes: &[u8]) -> Result<ParsedStream, VoleError> {
     parse_stream(bytes)
+}
+
+/// Parse a `.vole` stream, resolving every **external object declaration**
+/// through `store` (Phase P). Streams that embed their objects behave exactly
+/// as with [`decode_bytes`]; streams that reference store-held objects by
+/// content id are fetched here — each fetched record's digest must match its
+/// declared content id, and the resolved objects are ordinary
+/// [`crate::object::Object`]s from then on, so replay and materialization
+/// never touch the store again.
+pub fn decode_with_store(
+    bytes: &[u8],
+    store: &dyn crate::store::ObjectStore,
+) -> Result<ParsedStream, VoleError> {
+    parse_stream_resolving(bytes, store)
 }
 
 /// Advance one interval: apply every state transition to `state` in listed

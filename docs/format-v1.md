@@ -22,11 +22,17 @@ Numbering: all fields fixed-width unless noted.
 | 5 | 2 | format_version | must equal `1` |
 | 7 | 4 | universe_id | must equal `UNIVERSE_V1` |
 | 11 | 1 | limit_profile | must equal `1` (only v1 profile) |
-| 12 | 4 | feature_bits | must be `0` (fail closed) |
+| 12 | 4 | feature_bits | bits set only by streams using that feature (Phase P defines bit `0x1` = external objects); all bits are mandatory and fail closed |
 | 16 | 4 | canvas width | samples/row |
 | 20 | 4 | canvas height | rows |
 
 Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
+
+Feature bits (Phase P): only bit `0x1` (`FEAT_EXTERNAL_OBJECTS`) is defined.
+A stream sets the bit iff it carries at least one external object declaration
+(`0x09`); bit-without-declaration and declaration-without-bit are both
+`NonCanonicalEncoding`. Any other bit is `UnsupportedFeature`. Streams with
+feature_bits `0` (every pre-Phase-P file) are unchanged.
 
 ### Object declarations (before the checkpoint)
 
@@ -36,6 +42,7 @@ Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
 0x05 obj:u32 w:u32 h:u32 (w*h) index-byte    // palette-index raster (Phase J)
 0x06 pal:u32 len:u32 (len) entry:u8          // palette-table declaration (Phase J)
 0x07 obj:u32 w:u32 h:u32 program             // procedural generator (Phase N)
+0x09 obj:u32 cid[32]                       // external object reference (Phase P)
 ```
 
 A generator `program` is `kind:u8` + parameters (all little-endian):
@@ -63,6 +70,18 @@ A generator `program` is `kind:u8` + parameters (all little-endian):
 * Duplicate `obj`/`pal` ids ⇒ `DuplicateId`.
 * After the checkpoint tag, object/palette-declaration bytes are
   non-canonical (`NonCanonicalEncoding`).
+
+`0x09` (Phase P) is the **external object reference**: the immutable object's
+canonical record `[kind:u8][w:u32][h:u32][payload]` is *not* embedded; it is
+fetched by `cid` (the 32-byte BLAKE3 content identity of the record, equal to
+`identity::content_id_of` of the object) through the bound `ObjectStore` during
+parse. The fetched record's digest must equal `cid` (`IntegrityMismatch`
+otherwise) and is re-parsed with the same validation as the embedded forms
+(`Object::from_canonical_record`). A stream carrying `0x09` sets
+`FEAT_EXTERNAL_OBJECTS` and is deliberately **not standalone**: decoding
+without a store binding is `StoreRequired`, and a referenced record the store
+does not hold is `StoreObjectMissing`. Old decoders reject such streams at the
+feature bit / unknown tag — fail closed.
 
 ### Checkpoint
 
@@ -217,4 +236,7 @@ precisely; a flipped bit anywhere is caught as `IntegrityMismatch`.
 
 Once frozen, format v1 golden streams decode forever under v1 semantics
 (`docs/conformance.md`, `CONFORMANCE.md`); old files are never reinterpreted.
-New capability appears in new v-formats.
+New capability appears in new v-formats. v1 continues to *extend* per sealed
+phase with old streams re-parsed unchanged; the Phase-P additions
+(`TAG_OBJECT_EXTERN 0x09`, `FEAT_EXTERNAL_OBJECTS 0x1`) are additive: every
+pre-Phase-P stream has `feature_bits == 0` and decodes identically.

@@ -97,6 +97,22 @@ pub enum VoleError {
 
     /// A value passed to a public API is out of the operator-defined limit.
     ApiConstraint(&'static str),
+
+    /// A stream declares one or more *external* objects (Phase P) but no
+    /// [`crate::store::ObjectStore`] is bound. Such a stream is deliberately
+    /// not standalone: its immutable object payloads live in a store and must
+    /// be fetched through the store abstraction during parse.
+    StoreRequired,
+
+    /// An external object declaration referenced a content id that the bound
+    /// store does not hold. The stream cannot be decoded until the object is
+    /// published to the store.
+    StoreObjectMissing,
+
+    /// The store backend reported a failure (open/create/read/write/GC, or a
+    /// mapped backend error class). The payload is a stable condition name;
+    /// store errors never carry ambient OS state into the typed surface.
+    StoreFailure(&'static str),
 }
 
 impl fmt::Display for VoleError {
@@ -152,6 +168,17 @@ impl fmt::Display for VoleError {
             }
             Self::InvalidStatePhase => write!(f, "operation not valid in current stream phase"),
             Self::ApiConstraint(msg) => write!(f, "api constraint violated: {}", msg),
+            Self::StoreRequired => write!(
+                f,
+                "stream declares external objects but no object store is bound"
+            ),
+            Self::StoreObjectMissing => {
+                write!(
+                    f,
+                    "external object content id is not present in the bound store"
+                )
+            }
+            Self::StoreFailure(cond) => write!(f, "object store failure: {}", cond),
         }
     }
 }

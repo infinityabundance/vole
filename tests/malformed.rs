@@ -55,8 +55,18 @@ fn feature_bits_must_be_zero() {
     let full = court_bytes();
     // feature_bits is 4 bytes ending right before canvas width: offset breaks:
     // magic(4)+res(1)+fver(2)+univ(4)=11 then prof(1) => feature at 12..16.
+    // Phase P extension (recorded in the Phase-P receipt): bit 0x1 is now the
+    // *known* external-objects feature, so setting it without an external
+    // declaration is non-canonical (fail closed); any *unknown* bit is
+    // unsupported. Both are typed; neither decodes.
     let mut b = full.clone();
-    b[12] = 1; // set an unknown mandatory feature
+    b[12] = 1; // known feature bit, no external declarations
+    assert_eq!(
+        decoder::decode_bytes(&b).unwrap_err(),
+        VoleError::NonCanonicalEncoding
+    );
+    let mut b = full;
+    b[12] = 2; // unknown mandatory feature
     assert!(matches!(
         decoder::decode_bytes(&b).unwrap_err(),
         VoleError::UnsupportedFeature | VoleError::IntegrityMismatch

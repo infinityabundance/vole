@@ -46,6 +46,11 @@ independently re-derived reference in `proof/`.
 | Phase N: generator+residual closure exact; hostile generator wire forms typed; identity == wire record; accounting sums | PASS |
 | Phase O: every accepted rewrite is strictly smaller and decode-identical (velocity / trajectory collapse, residual promotion, generator substitution, duplicate merge) | PASS |
 | Phase O: never grows on earlier-phase stream shapes; palette streams preserved verbatim; hostile input typed | PASS |
+| Phase P: EmbeddedStore round-trip / dedup / reopen / hash gate exact; hostile store files typed at open (flip ⇒ IntegrityMismatch, truncate ⇒ Truncated, dup-cid ⇒ NonCanonical, bad magic ⇒ StoreFailure) | PASS |
+| Phase P: cross-video exact-object + palette sharing dedups to one physical record per distinct payload; declared / unique / physical reported separately (never zeroed); GC closure never collects a live root, last drop ⇒ full closure | PASS |
+| Phase P: external-declaration streams (`encode_stream_external`/`decode_with_store`) materialize byte-identical frames with payloads outside the stream; store-less decode / missing record / digest mismatch / hostile wire forms typed; old streams (feature_bits 0) re-parse unchanged | PASS |
+| Phase P: EntropyFsStore adapter (feature) — engine BlobId == VOLE content id, dedup to one blob, reopen durable, byte-exact get | PASS |
+| Phase P: standalone invariance — the full pre-Phase-P suite passes untouched (no store required for embedded streams) | PASS |
 
 ## Goldens
 
