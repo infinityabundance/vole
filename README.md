@@ -1,5 +1,9 @@
 # VOLE — Video Object Layer Engine
 
+<p align="center">
+  <img src="assets/vole.png" alt="VOLE logo">
+</p>
+
 > de Beer, R. (2026). VOLE: Procedural Video Storage and Transport by
 > Deterministic State Materialization - Broad Prior-Art Technical Disclosure and
 > Research Architecture (Version v1.0). Zenodo.
