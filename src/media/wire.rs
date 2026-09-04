@@ -1,5 +1,6 @@
-//! Format v2 core wire — Phase V.1.2 (normative grammar documented in
-//! `docs/format-v2.md`; this module is its implementation).
+//! Format v2 core wire — Phase V.1.2 + V.1.4 family extension (normative
+//! grammar documented in `docs/format-v2.md`; this module is its
+//! implementation).
 //!
 //! The v2 core container is the multi-plane program of one epoch:
 //!
@@ -9,14 +10,15 @@
 //!
 //! * `Header` (24 B, same prefix shape as v1 so version/universe dispatch is
 //!   a pure prefix read): magic `"VOLE"`, reserved 0, `format_version = 2`,
-//!   `universe_id = 2`, `limit_profile = 1`, `feature_bits = 0`, coded
-//!   `width`, `height`;
+//!   `universe_id = 2`, `limit_profile = 1`, `feature_bits`, coded `width`,
+//!   `height`;
 //! * `MediaDescriptor` (tag `0x11`): the epoch's full media interpretation —
 //!   layout code, per-plane component/depth table, chroma location, color
 //!   description, SAR, orientation, and field structure;
 //! * `PlaneBlock` (tag `0x10`, one per epoch plane, ascending index): the
 //!   plane program — background, object declarations, initial instances,
-//!   overlay, and interval groups of [`PlaneOp`]s;
+//!   overlay, interval groups of [`PlaneOp`]s, and (under the V.1.4 family
+//!   feature bit) the initial palette table + per-instance motion records;
 //! * `Integrity`: the last 32 bytes are BLAKE3 over every preceding byte.
 //!
 //! Every count/length is bounded by the frozen v1 [`Limits`] envelope applied
@@ -25,9 +27,15 @@
 //! (V.1.2's wire core carries the program; timeline binding is in-memory
 //! until the container layer lands).
 //!
-//! The exact v2 grammar is **frozen at the end of V.1.2** (`docs/format-v2.md`);
-//! v1 files decode forever under v1 semantics and never acquire v2
-//! interpretation.
+//! The v2 grammar was frozen at the end of V.1.2 and **deliberately extended
+//! at the end of V.1.4** (`docs/format-v2.md` re-frozen together with the
+//! goldens and the hostile corpus): feature bit `0x1` (family extension)
+//! declares the V.1.4 surface — object kinds `0x03` (palette-index) and `0x04`
+//! (generator), ops `0x29`–`0x31` (velocity/advance, trajectory/advance,
+//! palette ops, binding, affine, transform residual), and the per-plane
+//! initial palette/motion tail. Files without the bit keep their exact V.1.2
+//! meaning and byte form; v1 files decode forever under v1 semantics and
+//! never acquire v2 interpretation.
 
 use std::collections::BTreeMap;
 
@@ -40,17 +48,26 @@ use crate::media::color::{
     TransferCharacteristic,
 };
 use crate::media::core::{
-    MultiPlaneProgram, PlaneContent, PlaneInstance, PlaneInstanceId, PlaneObject, PlaneObjectId,
-    PlaneOp, PlaneProgram,
+    MultiPlaneProgram, PlaneContent, PlaneInstance, PlaneInstanceId, PlaneMotion, PlaneObject,
+    PlaneObjectId, PlaneOp, PlanePaletteId, PlaneProgram,
 };
 use crate::media::epoch::{EpochId, VideoEpoch};
 use crate::media::layout::{Component, PixelLayout};
 use crate::media::meta::{FieldStructure, Orientation, SampleAspectRatio};
 use crate::media::plane::{BitDepth, PlaneData};
+use crate::trajectory::TrajectorySegment;
 
-/// Feature bits of the v2 core container (none defined yet; unknown bits fail
-/// closed).
-pub const V2_FEATURES: u32 = 0;
+/// V.1.4 family-extension feature bit: the stream may use object kinds `0x03`/
+/// `0x04`, ops `0x29`–`0x31`, and the per-plane initial palette/motion tail.
+/// Old files (bit clear) parse exactly as the frozen V.1.2 grammar.
+pub const FEATURE_FAMILY: u32 = 0x1;
+
+/// Known feature bits of the v2 core container (unknown bits fail closed).
+pub const V2_FEATURES: u32 = FEATURE_FAMILY;
+
+/// Canonical trajectory segment wire kinds (mirror the sealed v1 forms).
+pub const SEG_LINEAR: u8 = 0x00;
+pub const SEG_ACCEL: u8 = 0x01;
 
 /// Canonical registry codes (frozen in `docs/format-v2.md`).
 pub mod codes {
@@ -83,6 +100,8 @@ pub mod codes {
 
     pub const OBJECT_FILL: u8 = 1;
     pub const OBJECT_RASTER: u8 = 2;
+    pub const OBJECT_INDEX: u8 = 3; // V.1.4 family extension
+    pub const OBJECT_GENERATOR: u8 = 4; // V.1.4 family extension
 
     pub const TAG_DESCRIPTOR: u8 = 0x11;
     pub const TAG_PLANE: u8 = 0x10;
@@ -95,6 +114,15 @@ pub mod codes {
     pub const OP_PATCH_OVERLAY: u8 = 0x26;
     pub const OP_COPY_RECT: u8 = 0x27;
     pub const OP_RESIDUAL: u8 = 0x28;
+    pub const OP_SET_VELOCITY: u8 = 0x29; // V.1.4 family extension
+    pub const OP_ADVANCE_TRANSLATIONS: u8 = 0x2A; // V.1.4 family extension
+    pub const OP_SET_TRAJECTORY: u8 = 0x2B; // V.1.4 family extension
+    pub const OP_ADVANCE_TRAJECTORIES: u8 = 0x2C; // V.1.4 family extension
+    pub const OP_SET_PALETTE: u8 = 0x2D; // V.1.4 family extension
+    pub const OP_PATCH_PALETTE: u8 = 0x2E; // V.1.4 family extension
+    pub const OP_BIND_PALETTE: u8 = 0x2F; // V.1.4 family extension
+    pub const OP_SET_AFFINE: u8 = 0x30; // V.1.4 family extension
+    pub const OP_TRANSFORM_RESIDUAL: u8 = 0x31; // V.1.4 family extension
 }
 
 fn layout_code(l: PixelLayout) -> u16 {
@@ -412,8 +440,113 @@ fn write_object(
                 }
             }
         }
+        // Palette-index content (V.1.4): one byte per index, tight.
+        PlaneContent::Index(indices) => {
+            if indices.len() as u64 != u64::from(obj.width) * u64::from(obj.height) {
+                return Err(VoleError::InvalidSamples);
+            }
+            s.byte(codes::OBJECT_INDEX)?;
+            s.push(indices.len() as u64)?;
+            s.extend(indices)?;
+        }
+        // Depth-aware generator content (V.1.4).
+        PlaneContent::Generator(gen) => {
+            gen.check(max)?;
+            s.byte(codes::OBJECT_GENERATOR)?;
+            s.extend(&gen.program_bytes())?;
+        }
     }
     Ok(())
+}
+
+/// Write the trajectory-segment list of one payload (canonical wire: kind
+/// byte + signed i32 fields + u64 steps, mirroring the sealed v1 form).
+fn write_segments(s: &mut ByteSink, segments: &[TrajectorySegment]) -> Result<(), VoleError> {
+    for seg in segments {
+        match seg {
+            TrajectorySegment::Linear { vx, vy, steps } => {
+                check_coord(*vx as i32)?;
+                check_coord(*vy as i32)?;
+                s.byte(SEG_LINEAR)?;
+                s.push(*vx as i32)?;
+                s.push(*vy as i32)?;
+                s.push(*steps)?;
+            }
+            TrajectorySegment::Accel {
+                vx0,
+                vy0,
+                ax,
+                ay,
+                steps,
+            } => {
+                check_coord(*vx0 as i32)?;
+                check_coord(*vy0 as i32)?;
+                check_coord(*ax as i32)?;
+                check_coord(*ay as i32)?;
+                s.byte(SEG_ACCEL)?;
+                s.push(*vx0 as i32)?;
+                s.push(*vy0 as i32)?;
+                s.push(*ax as i32)?;
+                s.push(*ay as i32)?;
+                s.push(*steps)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Read the trajectory-segment list of one payload (canonical checks: kind
+/// byte, signed coordinate domain, canonical segment form enforced by
+/// `TrajectorySegment::check`).
+fn read_segments(
+    r: &mut ByteReader<'_>,
+    count: u32,
+    limits: &Limits,
+) -> Result<Vec<TrajectorySegment>, VoleError> {
+    if u64::from(count) > u64::from(limits.max_trajectory_segments) {
+        return Err(VoleError::DimensionTooLarge);
+    }
+    let mut out = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        let kind = r.u8()?;
+        let seg = match kind {
+            SEG_LINEAR => {
+                let vx = i64::from(r.pull::<i32>()?);
+                let vy = i64::from(r.pull::<i32>()?);
+                let steps = r.pull::<u64>()?;
+                TrajectorySegment::Linear { vx, vy, steps }
+            }
+            SEG_ACCEL => {
+                let vx0 = i64::from(r.pull::<i32>()?);
+                let vy0 = i64::from(r.pull::<i32>()?);
+                let ax = i64::from(r.pull::<i32>()?);
+                let ay = i64::from(r.pull::<i32>()?);
+                let steps = r.pull::<u64>()?;
+                TrajectorySegment::Accel {
+                    vx0,
+                    vy0,
+                    ax,
+                    ay,
+                    steps,
+                }
+            }
+            _ => return Err(VoleError::NonCanonicalEncoding),
+        };
+        seg.check()?;
+        out.push(seg);
+    }
+    // Adjacent-equal-velocity linear segments are non-canonical (one canonical
+    // encoding only).
+    for pair in out.windows(2) {
+        if let [TrajectorySegment::Linear { vx: a, vy: b, .. }, TrajectorySegment::Linear { vx: c, vy: d, .. }] =
+            pair
+        {
+            if a == c && b == d {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Serialize the multi-plane core container of one epoch (header + media
@@ -430,6 +563,13 @@ pub fn write_multiplane(program: &MultiPlaneProgram) -> Result<Vec<u8>, VoleErro
             "v2 core wire does not serialize side data yet (reserved extension)",
         ));
     }
+    // The writer sets the minimal feature bits the content needs: a stream
+    // without V.1.4 family-extension surface keeps the exact V.1.2 byte form.
+    let features = if program.planes.iter().any(|p| p.uses_family_extension()) {
+        FEATURE_FAMILY
+    } else {
+        0
+    };
     let mut s = ByteSink::new();
     // Header (24 bytes; same prefix shape as v1).
     s.extend(b"VOLE")?;
@@ -437,7 +577,7 @@ pub fn write_multiplane(program: &MultiPlaneProgram) -> Result<Vec<u8>, VoleErro
     s.push(2u16)?; // format_version = 2
     s.push(2u32)?; // universe_id = 2
     s.byte(1)?; // limit_profile = 1 (v1 envelope, per plane)
-    s.push(V2_FEATURES)?;
+    s.push(features)?;
     s.push(epoch.width())?;
     s.push(epoch.height())?;
     // Media descriptor.
@@ -462,6 +602,7 @@ pub fn write_multiplane(program: &MultiPlaneProgram) -> Result<Vec<u8>, VoleErro
     // Plane blocks.
     for (i, prog) in program.planes.iter().enumerate() {
         let depth = epoch.planes()[i].bit_depth;
+        let max = depth.max_sample();
         s.byte(codes::TAG_PLANE)?;
         s.byte(i as u8)?;
         s.push(prog.background)?;
@@ -566,12 +707,129 @@ pub fn write_multiplane(program: &MultiPlaneProgram) -> Result<Vec<u8>, VoleErro
                         s.push(block.len() as u64)?;
                         s.extend(block)?;
                     }
+                    // --- V.1.4 family-extension ops ---
+                    PlaneOp::SetVelocity { id, vx, vy } => {
+                        check_coord(*vx as i32)?;
+                        check_coord(*vy as i32)?;
+                        s.byte(codes::OP_SET_VELOCITY)?;
+                        s.push(id.0)?;
+                        s.push(*vx as i32)?;
+                        s.push(*vy as i32)?;
+                    }
+                    PlaneOp::AdvanceTranslations => s.byte(codes::OP_ADVANCE_TRANSLATIONS)?,
+                    PlaneOp::SetTrajectory { id, segments } => {
+                        s.byte(codes::OP_SET_TRAJECTORY)?;
+                        s.push(id.0)?;
+                        s.push(segments.len() as u32)?;
+                        write_segments(&mut s, segments)?;
+                    }
+                    PlaneOp::AdvanceTrajectories => s.byte(codes::OP_ADVANCE_TRAJECTORIES)?,
+                    PlaneOp::SetPalette { id, entries } => {
+                        s.byte(codes::OP_SET_PALETTE)?;
+                        s.push(id.0)?;
+                        s.push(entries.len() as u32)?;
+                        for v in entries {
+                            if *v > max {
+                                return Err(VoleError::InvalidSamples);
+                            }
+                            s.push(*v)?;
+                        }
+                    }
+                    PlaneOp::PatchPalette { id, changes } => {
+                        s.byte(codes::OP_PATCH_PALETTE)?;
+                        s.push(id.0)?;
+                        s.push(changes.len() as u32)?;
+                        for (idx, v) in changes {
+                            if *v > max {
+                                return Err(VoleError::InvalidSamples);
+                            }
+                            s.push(*idx)?;
+                            s.push(*v)?;
+                        }
+                    }
+                    PlaneOp::BindPalette { instance, palette } => {
+                        s.byte(codes::OP_BIND_PALETTE)?;
+                        s.push(instance.0)?;
+                        s.push(palette.0)?;
+                    }
+                    PlaneOp::SetAffine { id, params } => {
+                        s.byte(codes::OP_SET_AFFINE)?;
+                        s.push(id.0)?;
+                        for c in [params.a, params.b, params.c, params.d, params.e, params.f] {
+                            check_coord(c as i32)?;
+                            s.push(c as i32)?;
+                        }
+                    }
+                    PlaneOp::TransformResidual { block } => {
+                        if block.len() as u64 > limits.max_residual_bytes {
+                            return Err(VoleError::DimensionTooLarge);
+                        }
+                        s.byte(codes::OP_TRANSFORM_RESIDUAL)?;
+                        s.push(block.len() as u64)?;
+                        s.extend(block)?;
+                    }
                 }
             }
+        }
+        // V.1.4 family-extension tail: the initial palette table (ascending
+        // palette id) and per-instance motion records (ascending instance id).
+        if features & FEATURE_FAMILY != 0 {
+            write_initial_tail(&mut s, prog, max)?;
         }
     }
     integr::append_trailer(&mut s)?;
     Ok(s.into_vec())
+}
+
+/// Write the per-plane family-extension tail (palette table then motion
+/// records, each in canonical ascending order).
+fn write_initial_tail(s: &mut ByteSink, prog: &PlaneProgram, max: u32) -> Result<(), VoleError> {
+    s.push(prog.palettes.len() as u32)?;
+    for (id, entries) in &prog.palettes {
+        if *id == PlanePaletteId::NONE || entries.is_empty() {
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+        s.push(id.0)?;
+        s.push(entries.len() as u32)?;
+        for v in entries {
+            if *v > max {
+                return Err(VoleError::InvalidSamples);
+            }
+            s.push(*v)?;
+        }
+    }
+    let mut motion = prog.initial_motion.clone();
+    motion.sort_by_key(PlaneMotion::instance);
+    s.push(motion.len() as u32)?;
+    for rec in motion {
+        s.push(rec.instance().0)?;
+        match rec {
+            PlaneMotion::Velocity { vx, vy, .. } => {
+                check_coord(vx as i32)?;
+                check_coord(vy as i32)?;
+                s.byte(0x01)?;
+                s.push(vx as i32)?;
+                s.push(vy as i32)?;
+            }
+            PlaneMotion::Trajectory { segments, .. } => {
+                s.byte(0x02)?;
+                s.push(segments.len() as u32)?;
+                write_segments(s, &segments)?;
+            }
+            PlaneMotion::Affine { params, .. } => {
+                s.byte(0x03)?;
+                for c in [params.a, params.b, params.c, params.d, params.e, params.f] {
+                    check_coord(c as i32)?;
+                    s.push(c as i32)?;
+                }
+            }
+            PlaneMotion::Binding { palette, .. } => {
+                s.byte(0x04)?;
+                s.push(palette.0)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -582,6 +840,7 @@ fn read_object(
     r: &mut ByteReader<'_>,
     depth: BitDepth,
     limits: &Limits,
+    ext: bool,
 ) -> Result<(u32, PlaneObject), VoleError> {
     let id = r.pull::<u32>()?;
     let w = r.pull::<u32>()?;
@@ -644,6 +903,26 @@ fn read_object(
             };
             PlaneContent::Raster(data)
         }
+        // Palette-index content (V.1.4): one byte per index, tight (indices
+        // are bounded by max_palette_entries = 256 at render time).
+        codes::OBJECT_INDEX => {
+            if !ext {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let len = r.pull::<u64>()?;
+            if len != count {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let indices = r.take_vec(len as usize)?;
+            PlaneContent::Index(indices)
+        }
+        // Depth-aware generator content (V.1.4).
+        codes::OBJECT_GENERATOR => {
+            if !ext {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            PlaneContent::Generator(crate::media::gen::Gen::parse_program(r, max)?)
+        }
         _ => return Err(VoleError::NonCanonicalEncoding),
     };
     Ok((
@@ -692,6 +971,7 @@ pub fn parse_multiplane(bytes: &[u8]) -> Result<MultiPlaneProgram, VoleError> {
     if features & !V2_FEATURES != 0 {
         return Err(VoleError::UnsupportedFeature);
     }
+    let ext = features & FEATURE_FAMILY != 0;
     let width = r.pull::<u32>()?;
     let height = r.pull::<u32>()?;
     limits.check_canvas(width, height)?;
@@ -769,7 +1049,7 @@ pub fn parse_multiplane(bytes: &[u8]) -> Result<MultiPlaneProgram, VoleError> {
                     return Err(VoleError::DimensionTooLarge);
                 }
                 for _ in 0..n_objects {
-                    let (id, obj) = read_object(&mut r, depth, &limits)?;
+                    let (id, obj) = read_object(&mut r, depth, &limits, ext)?;
                     if objects.insert(PlaneObjectId(id), obj).is_some() {
                         return Err(VoleError::DuplicateId);
                     }
@@ -843,16 +1123,24 @@ pub fn parse_multiplane(bytes: &[u8]) -> Result<MultiPlaneProgram, VoleError> {
                     }
                     let mut ops = Vec::with_capacity(n_ops as usize);
                     for _ in 0..n_ops {
-                        ops.push(read_op(&mut r, depth, &limits)?);
+                        ops.push(read_op(&mut r, depth, &limits, ext)?);
                     }
                     intervals.push((t, ops));
                 }
+                // V.1.4 family-extension tail (only under the feature bit).
+                let (palettes, initial_motion) = if ext {
+                    read_initial_tail(&mut r, depth, &limits)?
+                } else {
+                    (BTreeMap::new(), Vec::new())
+                };
                 planes[idx] = Some(PlaneProgram {
                     background: bg,
                     objects,
                     instances,
                     overlay,
                     intervals,
+                    palettes,
+                    initial_motion,
                 });
             }
             _ => return Err(VoleError::NonCanonicalEncoding),
@@ -874,11 +1162,121 @@ pub fn parse_multiplane(bytes: &[u8]) -> Result<MultiPlaneProgram, VoleError> {
     Ok(program)
 }
 
-fn read_op(r: &mut ByteReader<'_>, depth: BitDepth, limits: &Limits) -> Result<PlaneOp, VoleError> {
+/// Read the per-plane family-extension tail: the initial palette table
+/// (strictly ascending ids; entries inside the plane depth, count
+/// `1..=max_palette_entries`) and the per-instance motion records (strictly
+/// ascending instance ids, at most one per initial instance; canonical per
+/// kind).
+#[allow(clippy::type_complexity)] // (palette table, motion records)
+fn read_initial_tail(
+    r: &mut ByteReader<'_>,
+    depth: BitDepth,
+    limits: &Limits,
+) -> Result<(BTreeMap<PlanePaletteId, Vec<u32>>, Vec<PlaneMotion>), VoleError> {
+    let max = depth.max_sample();
+    let mut palettes: BTreeMap<PlanePaletteId, Vec<u32>> = BTreeMap::new();
+    let n_pal = r.pull::<u32>()?;
+    if u64::from(n_pal) > u64::from(limits.max_palettes) {
+        return Err(VoleError::DimensionTooLarge);
+    }
+    let mut prev_id: Option<u32> = None;
+    for _ in 0..n_pal {
+        let id = r.pull::<u32>()?;
+        if id == 0 {
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+        if prev_id.is_some_and(|p| id <= p) {
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+        prev_id = Some(id);
+        let n_entries = r.pull::<u32>()?;
+        if n_entries == 0 || u64::from(n_entries) > u64::from(limits.max_palette_entries) {
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+        let mut entries = Vec::with_capacity(n_entries as usize);
+        for _ in 0..n_entries {
+            let v = r.pull::<u32>()?;
+            if v > max {
+                return Err(VoleError::InvalidSamples);
+            }
+            entries.push(v);
+        }
+        palettes.insert(PlanePaletteId(id), entries);
+    }
+    let mut motion: Vec<PlaneMotion> = Vec::new();
+    let n_motion = r.pull::<u32>()?;
+    let mut prev_inst: Option<u32> = None;
+    for _ in 0..n_motion {
+        let instance = PlaneInstanceId(r.pull::<u32>()?);
+        if prev_inst.is_some_and(|p| instance.0 <= p) {
+            return Err(VoleError::NonCanonicalEncoding);
+        }
+        prev_inst = Some(instance.0);
+        let kind = r.u8()?;
+        let rec = match kind {
+            0x01 => {
+                let vx = i64::from(r.pull::<i32>()?);
+                let vy = i64::from(r.pull::<i32>()?);
+                check_coord(vx as i32)?;
+                check_coord(vy as i32)?;
+                if vx == 0 && vy == 0 {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+                PlaneMotion::Velocity { instance, vx, vy }
+            }
+            0x02 => {
+                let n_seg = r.pull::<u32>()?;
+                if n_seg == 0 {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+                let segments = read_segments(r, n_seg, limits)?;
+                PlaneMotion::Trajectory { instance, segments }
+            }
+            0x03 => {
+                let mut c = [0i64; 6];
+                for v in &mut c {
+                    let x = i64::from(r.pull::<i32>()?);
+                    check_coord(x as i32)?;
+                    *v = x;
+                }
+                let params = crate::affine::AffineParams {
+                    a: c[0],
+                    b: c[1],
+                    c: c[2],
+                    d: c[3],
+                    e: c[4],
+                    f: c[5],
+                };
+                params.check()?;
+                if params.is_identity() {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+                PlaneMotion::Affine { instance, params }
+            }
+            0x04 => {
+                let palette = PlanePaletteId(r.pull::<u32>()?);
+                if palette == PlanePaletteId::NONE {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+                PlaneMotion::Binding { instance, palette }
+            }
+            _ => return Err(VoleError::NonCanonicalEncoding),
+        };
+        motion.push(rec);
+    }
+    Ok((palettes, motion))
+}
+
+fn read_op(
+    r: &mut ByteReader<'_>,
+    depth: BitDepth,
+    limits: &Limits,
+    ext: bool,
+) -> Result<PlaneOp, VoleError> {
     let tag = r.u8()?;
     Ok(match tag {
         codes::OP_DECLARE_OBJECT => {
-            let (id, object) = read_object(r, depth, limits)?;
+            let (id, object) = read_object(r, depth, limits, ext)?;
             PlaneOp::DeclareObject {
                 id: PlaneObjectId(id),
                 object,
@@ -970,6 +1368,127 @@ fn read_op(r: &mut ByteReader<'_>, depth: BitDepth, limits: &Limits) -> Result<P
             }
             let block = r.take_vec(len as usize)?;
             PlaneOp::Residual { block }
+        }
+        // --- V.1.4 family-extension ops (tag requires the feature bit) ---
+        codes::OP_SET_VELOCITY => {
+            if !ext {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let id = PlaneInstanceId(r.pull::<u32>()?);
+            let vx = i64::from(r.pull::<i32>()?);
+            let vy = i64::from(r.pull::<i32>()?);
+            check_coord(vx as i32)?;
+            check_coord(vy as i32)?;
+            PlaneOp::SetVelocity { id, vx, vy }
+        }
+        codes::OP_ADVANCE_TRANSLATIONS => {
+            if !ext {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            PlaneOp::AdvanceTranslations
+        }
+        codes::OP_SET_TRAJECTORY => {
+            if !ext {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let id = PlaneInstanceId(r.pull::<u32>()?);
+            let n_seg = r.pull::<u32>()?;
+            let segments = read_segments(r, n_seg, limits)?;
+            PlaneOp::SetTrajectory { id, segments }
+        }
+        codes::OP_ADVANCE_TRAJECTORIES => {
+            if !ext {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            PlaneOp::AdvanceTrajectories
+        }
+        codes::OP_SET_PALETTE => {
+            if !ext {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let id = PlanePaletteId(r.pull::<u32>()?);
+            if id == PlanePaletteId::NONE {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let n = r.pull::<u32>()?;
+            if n == 0 || u64::from(n) > u64::from(limits.max_palette_entries) {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let mut entries = Vec::with_capacity(n as usize);
+            for _ in 0..n {
+                let v = r.pull::<u32>()?;
+                if v > depth.max_sample() {
+                    return Err(VoleError::InvalidSamples);
+                }
+                entries.push(v);
+            }
+            PlaneOp::SetPalette { id, entries }
+        }
+        codes::OP_PATCH_PALETTE => {
+            if !ext {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let id = PlanePaletteId(r.pull::<u32>()?);
+            let n = r.pull::<u32>()?;
+            if u64::from(n) > u64::from(limits.max_transitions_per_interval) {
+                return Err(VoleError::DimensionTooLarge);
+            }
+            let mut changes = Vec::with_capacity(n as usize);
+            let mut prev_idx: Option<u32> = None;
+            for _ in 0..n {
+                let idx = r.pull::<u32>()?;
+                let v = r.pull::<u32>()?;
+                if v > depth.max_sample() {
+                    return Err(VoleError::InvalidSamples);
+                }
+                if prev_idx.is_some_and(|p| idx <= p) {
+                    return Err(VoleError::NonCanonicalEncoding);
+                }
+                prev_idx = Some(idx);
+                changes.push((idx, v));
+            }
+            PlaneOp::PatchPalette { id, changes }
+        }
+        codes::OP_BIND_PALETTE => {
+            if !ext {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let instance = PlaneInstanceId(r.pull::<u32>()?);
+            let palette = PlanePaletteId(r.pull::<u32>()?);
+            PlaneOp::BindPalette { instance, palette }
+        }
+        codes::OP_SET_AFFINE => {
+            if !ext {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let id = PlaneInstanceId(r.pull::<u32>()?);
+            let mut c = [0i64; 6];
+            for v in &mut c {
+                let x = i64::from(r.pull::<i32>()?);
+                check_coord(x as i32)?;
+                *v = x;
+            }
+            let params = crate::affine::AffineParams {
+                a: c[0],
+                b: c[1],
+                c: c[2],
+                d: c[3],
+                e: c[4],
+                f: c[5],
+            };
+            params.check()?;
+            PlaneOp::SetAffine { id, params }
+        }
+        codes::OP_TRANSFORM_RESIDUAL => {
+            if !ext {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let len = r.pull::<u64>()?;
+            if len > limits.max_residual_bytes {
+                return Err(VoleError::DimensionTooLarge);
+            }
+            let block = r.take_vec(len as usize)?;
+            PlaneOp::TransformResidual { block }
         }
         _ => return Err(VoleError::NonCanonicalEncoding),
     })

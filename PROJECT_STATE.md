@@ -1,9 +1,9 @@
 # PROJECT_STATE
 
-**Current head:** Phase V.1 (video half) — V.1.3 foreign ingest bridge SEALED.
-**Current phase:** V.1 (Universal Procedural Video Codec — video half of the post-U research programme). V.1.0 audit + V.1.1 media domain + V.1.2 multiplane core + V.1.3 import bridge done; **next: V.1.4 existing-family generalization** (port the sealed v1 representation families onto the canonical multiplane domain over the V.1.2 floor). V.2 (procedural audio) is separate and later.
+**Current head:** Phase V.1 (video half) — V.1.4 existing-family generalization SEALED.
+**Current phase:** V.1 (Universal Procedural Video Codec — video half of the post-U research programme). V.1.0 audit + V.1.1 media domain + V.1.2 multiplane core + V.1.3 import bridge + V.1.4 existing-family generalization done; **next: V.1.5 global video structure** (global translation/rotzoom/affine proposals over real video). V.2 (procedural audio) is separate and later.
 **Phase order:** master brief §64 A→U sealed; post-U programme = V.1 video then V.2 audio, each executed in its own brief's subphase order (V.1: V.1.1 → V.1.23, entry-gated).
-**Format version:** v1 (`.vole`, permanent — goldens unchanged) · v2 + video universe v2 (header-prefix dispatch), core container grammar **frozen at the end of V.1.2** (`docs/format-v2.md`); both parse forever, neither reinterprets the other.
+**Format version:** v1 (`.vole`, permanent — goldens unchanged) · v2 + video universe v2 (header-prefix dispatch), core container grammar frozen at V.1.2 and **deliberately extended + re-frozen at V.1.4** (feature bit 0x1 family extension; additive — old bytes unchanged; `docs/format-v2.md`); both parse forever, neither reinterprets the other.
 
 ## Completed (measured, courted, sealed)
 
@@ -372,9 +372,28 @@ domain-separated BLAKE3 + SHA-256 sequence digests; in-crate integer SHA-256.
 Receipt `docs/phase-v1-3.md`; evidence
 `evidence/campaigns/phase-v1-3-import-bridge-…/`; 341 dev / 343
 all-features tests, 0 failures, v1 goldens + frozen v2 grammar unchanged.
-Next concrete action: **V.1.4 existing-family generalization** — port the
-sealed v1 representation families onto the canonical multiplane domain over
-the V.1.2 exact floor.
+**V.1.4 existing-family generalization complete and SEALED**: the remaining
+sealed v1 families ported onto the canonical multiplane domain — depth-aware
+procedural generators (`media/gen.rs`, mod-(max+1) semantics, depth-8
+identity to v1 Phase-N); palette-index content + per-plane palette state
+(Set/Patch/Bind, initial table + bindings in the program state); persistent
+velocity/trajectory motion per instance; Q8 affine placement; and the
+Phase-M transform-coded residual op — each with v1 meaning mirrored exactly in
+the plane's u32 sample domain and courted (depth-8 v1-parity byte-for-byte
+plus 10-bit against an independent compositor). The v2 wire was deliberately
+extended + re-frozen (feature bit 0x1: object kinds 0x03/0x04, ops 0x29–0x31,
+initial palette/motion tail; additive — old bytes and the V.1.2 golden
+unchanged; extension golden pinned). The per-plane **family encoder**
+(`media/encode.rs`, `encode_pictures_families`) proposes unchanged/fill/raw/
+exact/palette/generator/sparse/transform and CopyRect region reuse from the
+previous observation per interval, chooses the least complete bytes with a
+deterministic tie order, proves every observation sample-exact, and reports
+per-family accounting against the RAW floor. Receipt `docs/phase-v1-4.md`;
+evidence `evidence/campaigns/phase-v1-4-existing-family-generalization-…/`;
+369 dev / 371 all-features tests, 0 failures, v1 goldens + V.1.2 golden
+bytes unchanged. Next concrete action: **V.1.5 global video structure** —
+global translation / rotzoom / affine proposals over real video with
+fixed-point normative materialization (brief §248).
 
 ## Correct, decided, waiting
 
@@ -382,8 +401,8 @@ the V.1.2 exact floor.
 
 The post-U research programme runs in its own briefs' subphase order:
 V.1 video: V.1.0 audit (done) → V.1.1 canonical media domain (done) → V.1.2
-multiplane core + frozen v2 core wire (done) → V.1.3 import bridge (done) → V.1.4
-existing-family generalization → V.1.5–V.1.10
+multiplane core + frozen v2 core wire (done) → V.1.3 import bridge (done) →
+V.1.4 existing-family generalization (done) → V.1.5–V.1.10
 new predictor families in ladder order → V.1.11–V.1.12 hierarchical inverse +
 DSFB → V.1.13–V.1.15 target materializer + headless direct + damage →
 V.1.16–V.1.18 surface + streaming decoder + seek → V.1.19–V.1.22 real media +

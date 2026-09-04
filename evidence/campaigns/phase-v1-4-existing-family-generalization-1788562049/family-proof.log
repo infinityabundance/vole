@@ -1,0 +1,19 @@
+    Finished `release` profile [optimized] target(s) in 0.01s
+     Running `target/release/examples/family_proof`
+family proof: existing-family generalization (Phase V.1.4)
+
+1. family encoder over authored 10-bit YUV420 (8 observations)
+   total interval bytes 3664 (families sum 3664) | observations 21 | raw-floor 33327 | ratio 9.10x
+   family unchanged  obs 13 interval-bytes 156
+   family generator  obs 1 interval-bytes 56
+   family palette    obs 2 interval-bytes 2082
+   family translation obs 3 interval-bytes 111
+   state syncs 4 | candidate evaluations 46 | search work 16778240
+   encoder output re-materializes exactly (fresh + re-parsed)
+
+2. semantic surface (velocity/trajectory/palette-index mutation/generator/Q8 affine/transform residual), 10-bit YUV420
+   7 observations, 8064 canonical sample bytes, all re-materialized exact
+   frozen-v2 container 1095 B, feature bits 0x1 (family extension)
+   extension golden digest 55c7f4cce95c19f5d326a5bb084e058f3b6ba06ebe288656c78253d00d625007
+
+family proof: OK in release (exact multiplane families + family encoder + frozen-v2 wire)

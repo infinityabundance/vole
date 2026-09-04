@@ -59,7 +59,9 @@
 pub mod bridge;
 pub mod color;
 pub mod core;
+pub mod encode;
 pub mod epoch;
+pub mod gen;
 pub mod ingest;
 pub mod layout;
 pub mod meta;
@@ -76,8 +78,14 @@ pub use color::{
     MasteringDisplay, MatrixCoefficients, TransferCharacteristic,
 };
 pub use core::{
-    encode_plane_residual, materialize_plane, MultiPlaneProgram, PlaneContent, PlaneInstance,
-    PlaneInstanceId, PlaneObject, PlaneObjectId, PlaneOp, PlaneProgram,
+    encode_plane_residual, encode_plane_transform_block, materialize_plane, MultiPlaneProgram,
+    PlaneContent, PlaneInstance, PlaneInstanceId, PlaneMotion, PlaneObject, PlaneObjectId, PlaneOp,
+    PlanePaletteId, PlaneProgram, PlaneTrajectoryState,
+};
+pub use encode::{
+    encode_pictures_families, EncodeReport, FamilyTotals, FAMILY_COPY, FAMILY_EXACT, FAMILY_FILL,
+    FAMILY_GENERATOR, FAMILY_PALETTE, FAMILY_RAW, FAMILY_REGIONS, FAMILY_SPARSE, FAMILY_TRANSFORM,
+    FAMILY_TRANSLATION, FAMILY_UNCHANGED,
 };
 pub use epoch::{CanonicalVideo, CanonicalVideoObservation, EpochId, PlaneTemplate, VideoEpoch};
 pub use ingest::{encode_pictures_exact, ramp_picture, uniform_picture};

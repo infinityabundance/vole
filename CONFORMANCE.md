@@ -94,6 +94,12 @@ independently re-derived reference in `proof/`.
 | Phase V.1.3: VFR timeline preserves exact PTS deltas (one delta > 2× modal); last-observation duration unknown, never guessed | PASS |
 | Phase V.1.3: hostile corpus typed and panic-free — NUT truncations across the whole file, wrong magic, version/CRC-region flips, payload flips; a tampered payload byte stays structurally parseable but oracle verification fails typed `CanonicalHashMismatch`, and a pristine re-parse verifies | PASS |
 | Phase V.1.3: missing tools typed (`BridgeNotFound` on empty PATH); garbage inputs fail closed (typed bridge errors, never a hang); import time base == the NUT stream time base | PASS |
+| Phase V.1.4: v1 specialization parity at depth 8 for the ported families — velocity/advance translation, linear + accel trajectories, palette-index content + palette mutation, all four generator programs, Q8 quarter-turn + 2× zoom affine, and the transform-coded residual; every materialized frame byte-identical to the authoritative v1 decoder | PASS |
+| Phase V.1.4: authored 10-bit YUV420 semantic surface matches an independent per-plane compositor (closed-form trajectory positions, no shared paint code) on every observation | PASS |
+| Phase V.1.4: depth-aware generators — depth-8 identity to the sealed v1 Phase-N generators coordinate-by-coordinate; mod-(max+1) wrap and noise-scaling courts at 10/12/16-bit; wire record round-trips; hostile parameters typed | PASS |
+| Phase V.1.4: family encoder — static runs ride unchanged groups; 10-bit gradients and 4-value fields declared once as generator/palette content; a translating textured sprite served by CopyRect region reuse from its second frame (first appearance on a residual class); every run sample-exact with honest RAW-floor accounting (authored 10-bit YUV420: 3 664 B vs 33 327 B floor, 9.10×) | PASS |
+| Phase V.1.4: v2 family-extension wire — byte fixpoint roundtrips across 8 layout×depth rows incl. odd geometry and 16-bit; minimal feature bits (0 old surface / 0x1 extension); V.1.2 golden bytes unchanged; extension golden pinned; hostile corpus (cleared bit, op-without-bit, unknown motion kind, semantic refs, truncations/flips) typed, never a panic | PASS |
+| Phase V.1.4: transform floor — encode → op-0x31 decode == target at 10-bit through the wire, randomized 16-bit delta fields exact, hostile blocks typed | PASS |
 
 ## Goldens
 
