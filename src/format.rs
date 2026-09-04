@@ -82,6 +82,16 @@ pub(crate) const TAG_OBJECT_EXTERN: u8 = 0x09;
 /// that sets the bit without an external declaration (or vice versa) is
 /// non-canonical.
 pub(crate) const FEAT_EXTERNAL_OBJECTS: u32 = 0x0000_0001;
+/// Feature bit (Phase U, perceptual profile): the stream's declared frames
+/// are the **chosen reconstruction** `F̂` — the deterministic integer
+/// quantization `Q` (lattice rounding, optionally after the canonical integer
+/// pre-filter) applied by the *encoder* over raster-origin input — and not
+/// the original capture. The bit is a *declaration*: the grammar,
+/// materializer, and reconstruction are unchanged (a conforming decoder
+/// decodes such a stream exactly like any other — it reproduces `F̂`
+/// deterministically). Exact (lossless) streams never set it. Orthogonal to
+/// `FEAT_EXTERNAL_OBJECTS`; standalone streams may carry it.
+pub const FEAT_QUANTIZED_CONTENT: u32 = 0x0000_0002;
 // Transition tags.
 pub(crate) const TR_CREATE_INSTANCE: u8 = 0x21;
 pub(crate) const TR_SET_POSITION: u8 = 0x22;
@@ -192,9 +202,10 @@ fn read_header(r: &mut ByteReader<'_>) -> Result<Header, VoleError> {
     if limit_profile != LIMIT_PROFILE_V1 {
         return Err(VoleError::UnsupportedLimitProfile);
     }
-    // v1 feature bits are mandatory and fail closed: only the Phase-P external-
-    // objects bit is known to this decoder; any other bit is unsupported.
-    if feature_bits & !FEAT_EXTERNAL_OBJECTS != 0 {
+    // v1 feature bits are mandatory and fail closed: the Phase-P external-
+    // objects bit (0x1) and the Phase-U quantized-content declaration bit
+    // (0x2) are known to this decoder; any other bit is unsupported.
+    if feature_bits & !(FEAT_EXTERNAL_OBJECTS | FEAT_QUANTIZED_CONTENT) != 0 {
         return Err(VoleError::UnsupportedFeature);
     }
     Ok(Header {

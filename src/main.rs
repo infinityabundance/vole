@@ -4,6 +4,8 @@
 //!
 //! ```text
 //! vole demo moving-rect [out.vole]
+//! vole encode --width W --height H [--frames N] in.raw out.vole
+//! vole quant --width W --height H --shift S [--rounding R] [--filter F] in.raw out.vole
 //! vole decode <in.vole> [outdir]
 //! vole verify <in.vole> [--archive m.volea]
 //! vole archive <in.vole> [out.volea]
@@ -13,7 +15,14 @@
 
 use std::io::Write as _;
 
-use vole_video::{decoder, demo, error::VoleError, format::ParsedStream, inverse, pixel::Canvas};
+use vole_video::{
+    decoder, demo,
+    error::VoleError,
+    format::ParsedStream,
+    inverse,
+    lossy::{self, Filter, LossyOptions, QuantProfile, Rounding},
+    pixel::Canvas,
+};
 
 fn main() -> Result<(), VoleError> {
     let mut a = std::env::args().skip(1);
@@ -21,6 +30,7 @@ fn main() -> Result<(), VoleError> {
     match cmd.as_deref() {
         Some("demo") => cmd_demo(a),
         Some("encode") => cmd_encode(a),
+        Some("quant") => cmd_quant(a),
         Some("decode") => cmd_decode(a),
         Some("verify") => cmd_verify(a),
         Some("archive") => cmd_archive(a),
@@ -29,7 +39,9 @@ fn main() -> Result<(), VoleError> {
         Some("statics") => cmd_statics(),
         other => {
             eprintln!("vole: unknown or missing subcommand: {:?}", other);
-            eprintln!("usage: vole <demo|encode|decode|verify|archive|optimize|bench|statics> ...");
+            eprintln!(
+                "usage: vole <demo|encode|quant|decode|verify|archive|optimize|bench|statics> ..."
+            );
             if other.is_some() {
                 Err(VoleError::ApiConstraint("unknown subcommand"))
             } else {
@@ -129,6 +141,141 @@ fn cmd_encode(mut a: impl Iterator<Item = String>) -> Result<(), VoleError> {
         report.exact
     );
     Ok(())
+}
+
+/// Shared argument reader: `--width/--height/--frames` then positional args.
+struct RawArgs {
+    width: u32,
+    height: u32,
+    frames: Option<u64>,
+    args: Vec<String>,
+}
+
+fn parse_raw_args(mut a: impl Iterator<Item = String>) -> Result<RawArgs, VoleError> {
+    let mut width: Option<u32> = None;
+    let mut height: Option<u32> = None;
+    let mut frames: Option<u64> = None;
+    let mut args: Vec<String> = Vec::new();
+    while let Some(s) = a.next() {
+        match s.as_str() {
+            "--width" => width = Some(parse_u32(&mut a)?),
+            "--height" => height = Some(parse_u32(&mut a)?),
+            "--frames" => frames = Some(parse_u64(&mut a)?),
+            _ => args.push(s),
+        }
+    }
+    Ok(RawArgs {
+        width: width.ok_or(VoleError::ApiConstraint("needs --width"))?,
+        height: height.ok_or(VoleError::ApiConstraint("needs --height"))?,
+        frames,
+        args,
+    })
+}
+
+/// Read `in.raw` (concatenated Gray8 frames of the declared geometry) as
+/// canvases, validating the length against the geometry and frame count.
+fn read_raw_frames(ra: &RawArgs, infile: &str) -> Result<Vec<Canvas>, VoleError> {
+    let data = std::fs::read(infile).map_err(|_| VoleError::ApiConstraint("read failed"))?;
+    let per = u64::from(ra.width) * u64::from(ra.height);
+    let want = ra
+        .frames
+        .map(|n| n.saturating_mul(per))
+        .unwrap_or(data.len() as u64);
+    if per == 0 || want != data.len() as u64 || data.is_empty() {
+        return Err(VoleError::ApiConstraint(
+            "input length must be frames x w x h",
+        ));
+    }
+    inverse::frames_from_raw(&data, ra.width, ra.height)
+}
+
+/// `vole quant`: the Phase-U perceptual profile over raster-origin input.
+/// Quantizes `in.raw` onto the deterministic integer lattice (optionally
+/// after the canonical integer pre-filter), encodes the chosen reconstruction
+/// `F̂` exactly with the exhaustive inverse encoder, marks the stream with the
+/// quantized-content declaration (feature bit 0x2), and **proves** the
+/// normative decoder reproduces `F̂` before writing anything.
+fn cmd_quant(mut a: impl Iterator<Item = String>) -> Result<(), VoleError> {
+    // vole quant --width W --height H [--frames N] --shift S
+    //            [--rounding halfup|deadzone] [--filter none|box3] in.raw out.vole
+    let mut shift: Option<u8> = None;
+    let mut rounding = Rounding::HalfUp;
+    let mut filter = Filter::None;
+    let mut rest: Vec<String> = Vec::new();
+    while let Some(s) = a.next() {
+        match s.as_str() {
+            "--shift" => shift = Some(parse_u8(&mut a)?),
+            "--rounding" => {
+                rounding = match a.next().as_deref() {
+                    Some("halfup") => Rounding::HalfUp,
+                    Some("deadzone") => Rounding::DeadZone,
+                    _ => return Err(VoleError::ApiConstraint("rounding must be halfup|deadzone")),
+                }
+            }
+            "--filter" => {
+                filter = match a.next().as_deref() {
+                    Some("none") => Filter::None,
+                    Some("box3") => Filter::Box3,
+                    _ => return Err(VoleError::ApiConstraint("filter must be none|box3")),
+                }
+            }
+            _ => rest.push(s),
+        }
+    }
+    let ra = parse_raw_args(rest.into_iter())?;
+    let shift = shift.ok_or(VoleError::ApiConstraint("quant needs --shift"))?;
+    let infile = ra
+        .args
+        .first()
+        .ok_or(VoleError::ApiConstraint("quant needs an input .raw"))?;
+    let outfile = ra
+        .args
+        .get(1)
+        .ok_or(VoleError::ApiConstraint("quant needs an output .vole"))?;
+    let profile = QuantProfile {
+        shift,
+        rounding,
+        filter,
+    };
+    profile.check()?;
+    let frames = read_raw_frames(&ra, infile)?;
+    let report = lossy::encode_lossy(&frames, &profile, &LossyOptions::default())?;
+    std::fs::write(outfile, &report.stream)
+        .map_err(|_| VoleError::ApiConstraint("write failed"))?;
+    println!(
+        "vole quant: {}x{} frames={} profile={} -> {} ({} bytes)",
+        ra.width,
+        ra.height,
+        frames.len(),
+        profile.label(),
+        outfile,
+        report.stream.len()
+    );
+    let raw_bytes = u64::from(ra.width) * u64::from(ra.height) * frames.len() as u64;
+    println!(
+        "  raw_raster={}B declared_quantized={} lossless_profile={} reconstruction_proven=true",
+        raw_bytes,
+        lossy::declares_quantized(&report.stream)?,
+        report.exact
+    );
+    println!(
+        "  distortion: mae_x1000={} mse={} peak={} samples={}",
+        report.distortion.mae_x1000,
+        report.distortion.mse,
+        report.distortion.peak,
+        report.distortion.samples
+    );
+    if report.exact {
+        println!("  (lossless profile — the exact path; use `vole encode` for the plain encoder)");
+    }
+    Ok(())
+}
+
+fn parse_u8(a: &mut impl Iterator<Item = String>) -> Result<u8, VoleError> {
+    a.next()
+        .ok_or(VoleError::ApiConstraint("missing value"))?
+        .parse()
+        .map_err(|_| VoleError::ApiConstraint("expected an integer"))
 }
 
 fn parse_u32(a: &mut impl Iterator<Item = String>) -> Result<u32, VoleError> {

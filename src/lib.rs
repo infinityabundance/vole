@@ -42,6 +42,7 @@ pub mod ingest;
 pub mod integr;
 pub mod inverse;
 pub mod limits;
+pub mod lossy;
 pub mod materialize;
 pub mod object;
 pub mod optimize;

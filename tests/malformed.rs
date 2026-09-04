@@ -66,7 +66,9 @@ fn feature_bits_must_be_zero() {
         VoleError::NonCanonicalEncoding
     );
     let mut b = full;
-    b[12] = 2; // unknown mandatory feature
+    // Phase U extension (recorded in the Phase-U receipt): bit 0x2 is now the
+    // *known* quantized-content declaration, so 0x4 is the unknown bit here.
+    b[12] = 4; // unknown mandatory feature
     assert!(matches!(
         decoder::decode_bytes(&b).unwrap_err(),
         VoleError::UnsupportedFeature | VoleError::IntegrityMismatch

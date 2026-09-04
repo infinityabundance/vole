@@ -1,7 +1,7 @@
 # PROJECT_STATE
 
-**Current head:** Phase T sealed (see git log)
-**Current phase:** T (archive profile) — SEALED. Next: Phase U (perceptual profile, LAST).
+**Current head:** Phase U sealed (see git log) — the mandated ladder A → U is complete.
+**Current phase:** U (perceptual profile, LAST) — SEALED. No in-progress phase.
 **Phase order:** master brief §64, verified against the prior-art §29 lettering:
 A → B → C → D → E → F → G → H → I → J → K → L → M → N → O → P → Q → R → S → T → U.
 **Format version:** v1 (`.vole`), universe v1, limit-profile 1.
@@ -327,15 +327,40 @@ byte-verified roundtrip) — synthetic court only, no general claim. Receipt +
 evidence: `docs/phase-t.md`,
 `evidence/campaigns/phase-t-archive-…/`.
 
+Phase U (this head, LAST): the **perceptual (lossy) profile** (§64 Phase-U
+block, `src/lossy.rs`) — lossiness lives entirely in a deterministic integer
+quantization `Q` applied at **encode time over raster-origin input**: the
+stream encodes the chosen reconstruction `F̂ = Q(F)` (lattice `2^shift`
+0..=7, `Rounding::HalfUp` saturating the top half-bin at 255 /
+`DeadZone`, optional integer `[1 2 1] ≫ 2` `Box3` pre-filter; no floating
+point) and is decoded *exactly* by the unchanged normative materializer — the
+loss is **declared** (feature bit `0x2` `FEAT_QUANTIZED_CONTENT`; never set by
+exact streams, never changes reconstruction), **measured** (integer
+MAE×1000/MSE/peak), and **proven** (every stream decoded back and byte-equal
+to `F̂` before it exists). `rate_distortion`/`choose_rd` give the
+bytes↔distortion ladder with an honest budget rule (least-distorted evaluated
+row that fits; unmet budget reported, never violated). The declaration
+survives transport / archive / `vole optimize`; exact profiles and all earlier
+streams decode unchanged. New CLI `vole quant`. Measured: flagship A (flat
+panel + 2-bit temporal jitter, 480×270 ×17) — exact 1 806 807 B (106 282.8
+B/frame) → q3 **270 B** (15.9 B/frame amortized, **6 692×**) at MAE 1.5;
+recorded non-monotone bytes (q1/q2 exceed exact — intermediate lattices keep
+the residual dense while destroying its structure); dominated q4 row never
+chosen; authored-procedural control exact == q2 bytes (quantization adds
+distortion without removing state bytes — recorded negative); noise control
+RAW at every shift with exact proof intact; Phase-A golden and the whole A–T
+surface regression-clean. Receipt + evidence: `docs/phase-u.md`,
+`evidence/campaigns/phase-u-perceptual-…/`.
+
 ## In progress
 
-(none — Phase T sealed; Phase U is the final phase)
+(none — the mandated ladder A → U is complete and sealed)
 
 ## Correct, decided, waiting
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
-Phase U perceptual profile (last).
+(none — Phases A → U are all sealed)
 
 ## Failures / uncertainty
 
@@ -438,6 +463,24 @@ receipt) and the phase makes no compression claim against conventional
 codecs; deep verification costs exactly one decode pass (frame hashes are the
 §67 reconstruction oracle across representations and future decoders).
 
+Phase U additions: the perceptual profile is raster-origin only — lossiness
+is the encoder-side integer `Q` over observed rasters; there is no normative
+in-loop quantizer, no rate control, and no perceptual metric (measured
+MAE/MSE/peak only; no subjective or codec-comparison claim, §72). Half-up
+quantization saturates the top half-bin at the Gray8 maximum 255 (the one
+non-lattice output — exact and documented; dead-zone never leaves the
+lattice). Encoded bytes are **not monotone in the lattice step** (measured on
+both flagships: q1/q2 exceed the exact stream before q3 snaps the jitter
+off — the RD choice is defined over the measured ladder for that reason); a
+dominated row (q4 tying q3's bytes at higher distortion) is never chosen.
+Quantizing perfectly-procedural authored content adds distortion without
+removing procedural-state bytes (recorded negative — the exact profile stays
+intact and wins when it fits the budget). Noise stays in the RAW raster
+fallback at every shift (alphabet reduction does not shrink whole-canvas
+raster objects) — quantization never turns noise into state. The feature bit
+0x2 is a declaration only: it never changes reconstruction, is never enforced
+as a content check, and exact streams never set it.
+
 Closed by Phase O: stable residuals previously paid one-shot per frame for
 the life of a repeated difference — residual promotion now converts a run of
 identical one-shot blocks into one persistent overlay + the unchanged lane
@@ -479,3 +522,13 @@ re-parsed unchanged.
 
 Phase Q introduces no wire or format change (ingest/script serialize through
 the normative encoder; documented in `docs/ingest.md`).
+
+Phase U adds feature bit `0x2` (`FEAT_QUANTIZED_CONTENT`, a *declaration*
+that the stream's frames are the encoder's chosen reconstruction `F̂` =
+deterministic integer quantization of a raster-origin capture — never set by
+exact streams, never changing reconstruction; documented in `docs/format-v1.md`
+/ `docs/phase-u.md`) and the Phase-U quantizer constants (`src/lossy.rs`:
+lattice `2^shift` for shift 0..=7 over Gray8, half-up rounding with 255
+saturation / dead-zone rounding, `[1 2 1] ≫ 2` Box3 pre-filter with edge
+replication, `Distortion` integer MAE×1000/MSE/peak). v1 goldens and every
+earlier stream (`feature_bits` 0) are unchanged.

@@ -63,8 +63,14 @@ pub struct OptimizeReport {
 }
 
 /// Optimize a standalone stream to a fixpoint of the bounded rewrite set.
-/// Never grows the stream; never changes the decoded frames.
+/// Never grows the stream; never changes the decoded frames. A stream that
+/// declares quantized content (Phase U feature bit 0x2 — its frames are the
+/// chosen reconstruction `F̂`) keeps the declaration on the output: the
+/// rewrite is decode-identical, so the provenance statement survives.
 pub fn optimize_stream(bytes: &[u8]) -> Result<OptimizeReport, VoleError> {
+    let quantized = decoder::decode_bytes(bytes)?.header().feature_bits()
+        & crate::format::FEAT_QUANTIZED_CONTENT
+        != 0;
     let mut cur = bytes.to_vec();
     let mut rewrites: Vec<&'static str> = Vec::new();
     for _ in 0..512 {
@@ -78,6 +84,11 @@ pub fn optimize_stream(bytes: &[u8]) -> Result<OptimizeReport, VoleError> {
             }
             None => break,
         }
+    }
+    if quantized {
+        // The rewrites rebuild header records with feature bits 0; re-apply the
+        // quantized-content declaration to the (decode-identical) output.
+        cur = crate::encoder::mark_quantized_content(&cur)?;
     }
     let before_frames = decoder::materialize_all(&decoder::decode_bytes(bytes)?)?;
     let after_frames = decoder::materialize_all(&decoder::decode_bytes(&cur)?)?;

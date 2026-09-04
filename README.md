@@ -64,7 +64,7 @@ painter, including boundary frames under SHA-256 in `proof/`).
 See `docs/architecture.md`, `tests/court.rs`, `tests/malformed.rs`, and
 `docs/transitions.md` for the full court and hostile-input record.
 
-## Sealed phase surface (Phases A–T)
+## Sealed phase surface (Phases A–U)
 
 Each phase is sealed only after the full gate
 (fmt/check/clippy `-D warnings`/test dev+release), hostile-input courts, an
@@ -94,6 +94,7 @@ lives in `docs/phase-*.md` + `evidence/campaigns/`.
 | R | Procedural transport (§34–§36): `[len][kind][seq][body]` packets in the five classes OBJECT/CHECKPOINT/INTERVAL/RESIDUAL/INTEGRITY; receiver plays prefixes through the **normative parser** | byte-exact reassembly of a standalone `.vole`; typed loss gaps + retransmission; bounded checkpoint replay; §33: static interval 26 B framed vs 15,360 raster samples — whole 25-frame transport 1,488 framed B < one raster frame; unchanged lane amortizes to 29 B/frame over 225 frames |
 | S | Partial materialization (§16/§37/§66): `View::Rect`/`View::Tile` demand-planned decode; `FullFrame` views replay the canonical step machinery | 1920×1080 ×41-frame court: tracking 260×140 viewport paints one level of 56,400 samples = **2.72% of the whole-frame lane**, objects touched 1, random access frame 40 = 0.068 ms vs 13.5 ms whole (198×); every view byte-equal to the whole-frame crop |
 | T | Archive profile (§67): self-describing, self-sealed `.volea` manifests — record index (byte-level corruption localization, no decode), object/checkpoint hashes, per-frame reconstruction hashes, pinned universe | corrupted bytes localize to their exact record (header / object / interval `t` / trailer); `vole optimize` rewrites keep all frame hashes identical; manifest overhead 0.4% on raster streams (362.9% on 2.7 KB procedural — measured both ends); FFV1 external harness receipt (synthetic court: VOLE 2,692 B state vs FFV1 105,078 B raster) |
+| U | Perceptual profile (§64 Phase-U block): deterministic integer quantization `Q` over raster-origin input — the stream encodes the chosen reconstruction `F̂ = Q(F)` and the **unchanged normative decoder reproduces `F̂` exactly** (loss lives in the declared, encode-time lattice; feature bit `0x2` declares it, MAE/MSE/peak measure it, every stream is decode-proven); `vole quant` CLI | flat panel + 2-bit temporal jitter (480×270 ×17): exact 1,806,807 B (106,282.8 B/frame) → **q3 270 B** (15.9 B/frame, 6,692×) at MAE 1.5; recorded: bytes are *not* monotone in the lattice (q1/q2 > exact), dominated q4 row never chosen, authored content gains nothing from lossy (recorded negative), noise stays RAW — exact profiles intact |
 
 ## Build / test gate (each sealed phase must pass)
 
@@ -104,19 +105,22 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
-## CLI (Phase A–T surface)
+## CLI (Phase A–U surface)
 
 The store substrate (`vole_video::store`), the native procedural ingest API
 (`vole_video::ingest`, §53 script format in `vole_video::script`), the
 procedural transport layer (`vole_video::transport`, Phase R), the partial
-view decoder (`vole_video::partial`, `View::Rect`/`Tile`, Phase S), and the
-archive profile (`vole_video::archive`, `.volea` manifests, Phase T) are
-library-level. CLI additions: `vole archive` builds a manifest; `vole verify
---archive m.volea` verifies structurally and deep against it.
+view decoder (`vole_video::partial`, `View::Rect`/`Tile`, Phase S), the
+archive profile (`vole_video::archive`, `.volea` manifests, Phase T), and the
+perceptual profile (`vole_video::lossy`, Phase U) are library-level. CLI
+additions: `vole archive` builds a manifest; `vole verify --archive m.volea`
+verifies structurally and deep against it; `vole quant` runs the Phase-U
+perceptual profile.
 
 ```
 vole demo moving-rect [out.vole]
 vole encode --width W --height H [--frames N] in.raw out.vole
+vole quant --width W --height H --shift S [--rounding halfup|deadzone] [--filter none|box3] in.raw out.vole
 vole decode <in.vole> [outdir]
 vole verify <in.vole> [--archive m.volea]
 vole archive <in.vole> [out.volea]
@@ -139,6 +143,15 @@ verifies the stream against it — structural record digests localize any
 corrupted byte to its exact record without raster work, and a deep pass
 re-checks every frame's reconstruction hash (see `docs/phase-t.md`).
 
+`vole quant` (Phase U) is the perceptual profile: it quantizes `in.raw`
+(Gray8 frames) onto the deterministic integer lattice `2^shift` — optionally
+after the canonical `[1 2 1] ≫ 2` pre-filter, with half-up or dead-zone
+rounding — encodes the chosen reconstruction `F̂` **exactly** with the
+inverse encoder, declares it (feature bit `0x2`), proves the decoder
+reproduces `F̂`, and prints the measured bytes + MAE/MSE/peak. The normative
+decoder is unchanged and remains exact: lossiness lives entirely in the
+declared encode-time quantization (see `docs/phase-u.md`).
+
 `vole optimize <in.vole> <out.vole>` (Phase O) rewrites a decoded stream by
 bounded, equivalence-preserving families — velocity/trajectory collapse,
 residual promotion, generator substitution, duplicate merge — accepting a
@@ -157,8 +170,7 @@ vole encode --width 1920 --height 1080 --frames 101 box.raw box.vole
 
 ## Status
 
-**Current head: Phase T sealed** (archive profile); the final phase in the
-mandated ladder is **Phase U** (perceptual profile).
+**Current head: Phase U sealed** — the mandated ladder **A → U is complete**.
 The phase ledger, mechanism ledger, per-phase receipts, and frozen format
 decisions are authoritative and kept current:
 
@@ -168,7 +180,7 @@ CONFORMANCE.md             per-phase conformance rows + goldens
 SECURITY.md / SPEC.md      limits, hostile-input contract, universe v1
 
 docs/empirical-status.md   mechanism ledger (ADOPTED / RECORDED / PROPOSED / …)
-docs/phase-*.md           sealed phase receipts (a–t)
+docs/phase-*.md           sealed phase receipts (a–u)
 docs/architecture.md       format-v1, transitions, residuals, accounting, …
 evidence/campaigns/        timestamped, reproducible evidence (never overwritten)
 ```
@@ -179,7 +191,8 @@ only measured, courted mechanisms are.
 ## Release
 
 Published on crates.io as [`vole-video`](https://crates.io/crates/vole-video)
-(lib `vole_video`; the `vole` binary). Current: **v0.16.x — Phases A–T sealed**.
+(lib `vole_video`; the `vole` binary). Current: **v0.17.x — Phases A–U sealed**
+(the full mandated ladder).
 The `entropyfs-store` cargo feature (default OFF) links the real EntropyFS
 engine adapter; the standalone build never needs it.
 

@@ -22,17 +22,25 @@ Numbering: all fields fixed-width unless noted.
 | 5 | 2 | format_version | must equal `1` |
 | 7 | 4 | universe_id | must equal `UNIVERSE_V1` |
 | 11 | 1 | limit_profile | must equal `1` (only v1 profile) |
-| 12 | 4 | feature_bits | bits set only by streams using that feature (Phase P defines bit `0x1` = external objects); all bits are mandatory and fail closed |
+| 12 | 4 | feature_bits | bits set only by streams using that feature (Phase P defines bit `0x1` = external objects; Phase U defines bit `0x2` = quantized content); all bits are mandatory and fail closed |
 | 16 | 4 | canvas width | samples/row |
 | 20 | 4 | canvas height | rows |
 
 Unknown universe/profile/feature/version ⇒ `Unsupported*` typed error.
 
-Feature bits (Phase P): only bit `0x1` (`FEAT_EXTERNAL_OBJECTS`) is defined.
-A stream sets the bit iff it carries at least one external object declaration
-(`0x09`); bit-without-declaration and declaration-without-bit are both
-`NonCanonicalEncoding`. Any other bit is `UnsupportedFeature`. Streams with
-feature_bits `0` (every pre-Phase-P file) are unchanged.
+Feature bits (Phase P + Phase U): bit `0x1` (`FEAT_EXTERNAL_OBJECTS`) is set
+iff the stream carries at least one external object declaration (`0x09`);
+bit-without-declaration and declaration-without-bit are both
+`NonCanonicalEncoding`. Bit `0x2` (`FEAT_QUANTIZED_CONTENT`) is the Phase-U
+perceptual-profile **declaration**: the stream's frames are the encoder's
+*chosen reconstruction* `F̂` — the deterministic integer quantization `Q`
+(lattice rounding, optionally after the canonical `[1 2 1] ≫ 2` integer
+pre-filter; `src/lossy.rs`) applied over raster-origin input — and not the
+original capture. The bit never changes grammar, materialization, or
+reconstruction (a conforming decoder reproduces `F̂` identically with or
+without it); it declares provenance. Exact (lossless) streams never set it.
+Any other bit is `UnsupportedFeature`. Streams with feature_bits `0` (every
+pre-Phase-P file and every exact stream) are unchanged.
 
 ### Object declarations (before the checkpoint)
 

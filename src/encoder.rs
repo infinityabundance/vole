@@ -8,12 +8,45 @@
 
 use crate::{
     error::VoleError,
-    format::StreamWriter,
+    format::{StreamWriter, FEAT_QUANTIZED_CONTENT},
+    integr,
     object::{Object, ObjectId},
     state::{Instance, InstanceId, State},
     time::Interval,
     transition::Transition,
 };
+
+/// Mark a standalone stream as carrying **quantized-content declarations**
+/// (Phase U perceptual profile): set feature bit `0x2` (a declaration that the
+/// stream's frames are the encoder's *chosen reconstruction* `F̂` — the
+/// deterministic integer quantization of a source — not the original capture)
+/// and re-seal the integrity trailer. The bit never changes reconstruction — a
+/// conforming decoder reproduces exactly the same `F̂` frames with or without
+/// it; it declares the frames' provenance. Exact (lossless) streams never call
+/// this. Idempotent.
+pub fn mark_quantized_content(bytes: &[u8]) -> Result<Vec<u8>, VoleError> {
+    if bytes.len() < 24 + integr::DIGEST_LEN {
+        return Err(VoleError::Truncated);
+    }
+    // Canonical header: feature_bits live at bytes 12..16.
+    let mut fb = [0u8; 4];
+    fb.copy_from_slice(&bytes[12..16]);
+    let mut features = u32::from_le_bytes(fb);
+    if features & crate::format::FEAT_EXTERNAL_OBJECTS != 0 {
+        // External-object streams are not standalone; their payloads live in a
+        // store, so a quantized-content declaration is meaningless here.
+        return Err(VoleError::ApiConstraint(
+            "cannot mark a store-backed stream as quantized content",
+        ));
+    }
+    features |= FEAT_QUANTIZED_CONTENT;
+    let mut out = bytes.to_vec();
+    out[12..16].copy_from_slice(&features.to_le_bytes());
+    let n = out.len();
+    let d = integr::digest(&out[..n - integr::DIGEST_LEN]);
+    out[n - integr::DIGEST_LEN..].copy_from_slice(&d);
+    Ok(out)
+}
 
 /// Encode a complete procedural stream from explicit descriptors.
 ///

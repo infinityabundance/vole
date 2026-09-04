@@ -69,6 +69,13 @@ independently re-derived reference in `proof/`.
 | Phase T: layered verification — pristine streams Complete (structural + objects + checkpoint + 101/101 deep frame hashes); one flipped byte localizes to its exact record (header / object decl / interval t / integrity trailer); grammar-breaking corruption is a typed error, never a panic | PASS |
 | Phase T: representation equivalence — `vole optimize` rewrite reports StructuralMismatch while every frame hash is identical (reconstruction oracle); forged pinned universe ⇒ SelfDescriptionMismatch(Universe); archive verification orthogonal to partial views | PASS |
 | Phase T (FFV1 external harness): FFmpeg FFV1 lossless roundtrip byte-verified on the phase-A court with a full receipt (sizes, times, environment); VOLE 2 692 B procedural vs FFV1 105 078 B raster on that synthetic court — no general claim | PASS (harness, external) |
+| Phase U: quantizer lattice == documented formula over the full Gray8 domain × shifts 0..=7 × both roundings (half-up top half-bin saturates at 255; dead-zone never leaves the lattice); Box3 `[1 2 1] ≫ 2` pre-filter hand-computed; distortion metrics hand-computed | PASS |
+| Phase U: exact profile is lossless and unmarked (byte-identical to the plain inverse encode); lossy `encode_lossy` sets the declaration bit and **decoder output == F̂ == Q(source)** byte-for-byte on every stream (normative proof); marker idempotent and deterministic | PASS |
+| Phase U: RD ladder deterministic + monotone distortion, rows agree with direct encodes; `choose_rd` = least-distorted evaluated row within budget (recomputed expectation), honest unmet budget; no budget = smallest stream | PASS |
+| Phase U: feature bit 0x2 is a declaration only — fake-set on an exact stream and fake-clear on a quantized stream both decode to identical frames; marker refuses store-backed and truncated input typed; corrupted marked stream still IntegrityMismatch | PASS |
+| Phase U: quantized streams survive transport (byte-identical reassembly), archive (deep verify Complete), and `vole optimize` (declaration preserved, decode-identical F̂) | PASS |
+| Phase U: measured flagships — flat panel + 2-bit temporal jitter 480×270 ×17: exact 1 806 807 B → q3 270 B (6 692×, MAE 1.5, 15.9 B/frame vs 106 282.8 B/frame); recorded non-monotone bytes (q1/q2 > exact), dominated q4 row never chosen; authored control exact == q2 bytes; noise control RAW at every shift with exact proof | PASS (measured) |
+| Phase U: regression — Phase-A golden (101 full-HD frames) and every earlier-phase stream decode unchanged with bit 0x2 known; noise negative control stays RAW (procedural fraction < 0.15) | PASS |
 
 ## Goldens
 

@@ -1,0 +1,37 @@
+    Finished `release` profile [optimized] target(s) in 0.01s
+     Running `target/release/examples/lossy_proof`
+flagship A: flat panel + 2-bit temporal jitter (480x270 x17, raw 2203200 B)
+
+| profile | .vole B | MAE | MSE | peak |
+|---|---|---|---|---|
+| q0:halfup | 1806807 | 0.000 | 0 | 0 |
+| q1:halfup | 1910094 | 0.499 | 0 | 1 |
+| q2:halfup | 2068264 | 0.999 | 1 | 2 |
+| q3:halfup | 270 | 1.499 | 3 | 3 |
+| q4:halfup | 270 | 6.500 | 43 | 8 |
+
+measured trade: exact 1806807 B -> q3 270 B (6691.877777777778x); MAE 1.499, MSE 3, peak 3 — declared, never zeroed
+  recorded: q4 ties q3's 270 B at strictly higher distortion (MAE 6.500 vs 1.499) — a dominated row; choose_rd never picks it (least-distorted fit within budget)
+  recorded: bytes are NOT monotone in the lattice — q1/q2 (1910094 B / 2068264 B) exceed the exact profile (1806807 B): an intermediate lattice keeps the residual dense while destroying the exact residual's structure. The RD choice accounts for it.
+
+q3 stream: 270 B for 17 frames = 15.9 B/frame amortized (static lane after the frame-0 basis); intervals of the flat F̂ ride the unchanged lane
+exact stream: 1806807 B for 17 frames = 106282.8 B/frame amortized (each interval carries a dense jitter residual)
+
+RD budget = 451701 B (¼ of exact): chosen q3:halfup (270 B, budget_met=true)
+
+flagship B: smooth ramp + 2-bit temporal jitter (320x180 x9, raw 518400 B)
+  q0:halfup: 433042 B  MAE 0.000  MSE 0  peak 0
+  q1:halfup: 440048 B  MAE 0.499  MSE 0  peak 1
+  q2:halfup: 461905 B  MAE 0.999  MSE 1  peak 2
+  q3:halfup: 346392 B  MAE 1.997  MSE 5  peak 4
+
+authored-procedural control (moving rect, 13 frames): exact 33173 B, q2 33173 B, q2 MAE 0.975 — quantization adds measured distortion without removing the procedural-state bytes (recorded negative)
+
+noise negative control (192x128 x3, raw 73728 B):
+  q0: 73909 B  MAE 0.000  peak 0  declared=false
+  q2: 73909 B  MAE 1.501  peak 3  declared=true
+  q4: 73909 B  MAE 7.479  peak 15  declared=true
+
+exact profile: lossless (1806807 B), no declaration, decode byte-identical to the source — the lossless ladder stays intact
+
+lossy proof: OK (flagships A/B + authored control + noise control; every stream decoded and proven == F̂) in 39.1 s

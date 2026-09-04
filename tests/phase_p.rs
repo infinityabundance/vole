@@ -761,8 +761,10 @@ fn extern_hostile_wire_forms_are_typed() -> Result<(), VoleError> {
         VoleError::NonCanonicalEncoding
     );
 
-    // (4) Unknown mandatory feature bit: fail closed.
-    let mut s = header(2);
+    // (4) Unknown mandatory feature bit: fail closed. (0x1 is the known
+    // external-objects bit and 0x2 the known Phase-U quantized-content
+    // declaration, so 0x4 is a genuinely unknown mandatory bit here.)
+    let mut s = header(4);
     s.byte(0x09).expect("extern tag");
     s.push(1u32).expect("object id");
     s.extend(cid.as_bytes()).expect("content id");

@@ -236,9 +236,10 @@ impl ArchiveManifest {
     /// hold them).
     pub fn build(bytes: &[u8]) -> Result<ArchiveManifest, VoleError> {
         // External-object streams are refused before decode (decoding them
-        // requires the store).
+        // requires the store). Quantized-content declarations (Phase U bit
+        // 0x2) are standalone and archive normally.
         let (_, _, _, feat, _, _) = raw_header_fields(bytes)?;
-        if feat != 0 {
+        if feat & crate::format::FEAT_EXTERNAL_OBJECTS != 0 {
             return Err(VoleError::ApiConstraint(
                 "archiving requires a standalone stream (no external objects)",
             ));

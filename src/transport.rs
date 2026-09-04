@@ -69,8 +69,14 @@ pub const FRAME_OVERHEAD: u64 = 13;
 /// byte-identical to the standalone writer's record.
 #[derive(Debug, Clone)]
 pub enum Packet {
-    /// Stream header (v1 standalone only in this phase).
-    Header { width: u32, height: u32 },
+    /// Stream header (v1 standalone only in this phase). `feature_bits` are
+    /// preserved from the source stream (quantized-content declarations, Phase
+    /// U, survive transport; external-object streams are refused).
+    Header {
+        width: u32,
+        height: u32,
+        feature_bits: u32,
+    },
     /// Immutable object declaration.
     Object {
         id: u32,
@@ -99,8 +105,12 @@ impl Packet {
     /// Payload (frame body) bytes of the packet.
     pub fn body(&self) -> Result<Vec<u8>, VoleError> {
         match self {
-            Packet::Header { width, height } => {
-                let h = format::Header::v1(*width, *height, 0);
+            Packet::Header {
+                width,
+                height,
+                feature_bits,
+            } => {
+                let h = format::Header::v1(*width, *height, *feature_bits);
                 format::header_bytes(&h)
             }
             Packet::Object { id, object } => format::object_decl_bytes(ObjectId(*id), object),
@@ -159,11 +169,12 @@ pub struct Transmitter {
 impl Transmitter {
     /// Packetize a **standalone** `.vole` stream (store-backed streams with
     /// external object declarations are rejected: transport of a non-standalone
-    /// stream is a recorded Phase-R boundary).
+    /// stream is a recorded Phase-R boundary). Quantized-content declarations
+    /// (Phase U feature bit 0x2) are standalone and are preserved.
     pub fn packetize(bytes: &[u8]) -> Result<Self, VoleError> {
         let parsed = decoder::decode_bytes(bytes)?;
         let header = parsed.header();
-        if header.feature_bits() != 0 {
+        if header.feature_bits() & crate::format::FEAT_EXTERNAL_OBJECTS != 0 {
             return Err(VoleError::ApiConstraint(
                 "transport requires a standalone stream (no external objects)",
             ));
@@ -173,6 +184,7 @@ impl Transmitter {
         packets.push(Packet::Header {
             width: parsed.width(),
             height: parsed.height(),
+            feature_bits: header.feature_bits(),
         });
         for (id, obj) in initial.objects() {
             packets.push(Packet::Object {
