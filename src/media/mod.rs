@@ -1,5 +1,5 @@
-//! Canonical video media domain — Phase V.1.1/V.1.2 (V.1 video programme,
-//! contract `docs/phase-v1-video-architecture.md` §2.2–§2.6).
+//! Canonical video media domain — Phase V.1.1/V.1.2/V.1.3 (V.1 video
+//! programme, contract `docs/phase-v1-video-architecture.md` §2.1–§2.6).
 //!
 //! V.1.1 established the **in-memory media interpretation layer** that the
 //! multiplane core, the import bridge (V.1.3), and every later subphase build
@@ -39,13 +39,24 @@
 //!   (header + media descriptor + plane blocks + BLAKE3 trailer; normative
 //!   grammar in `docs/format-v2.md`), with typed hostile-safe parsing.
 //!
+//! V.1.3 adds the **foreign ingest bridge** ([`bridge`]) over that core:
+//! ffprobe manifests (evidence), bounded ffmpeg subprocess runs (software
+//! decode, retained pixel format, no silent transforms), the independent
+//! framehash SHA-256 oracle, the narrow NUT pipe reader (exact PTS + tight
+//! rawvideo payloads), and the reversible source-layout canonicalizer —
+//! culminating in [`import_video`], which verifies every canonical
+//! observation against the oracle before returning a validated
+//! [`CanonicalVideo`]. NUT/FFmpeg are non-normative and never appear inside
+//! `.vole`.
+//!
 //! The separation of the two clocks is deliberate and normative (contract
 //! §2.2): the procedural state machine keeps v1's explicit-interval semantics
 //! (`crate::time::Interval`); the media timeline in this module is a
 //! *declarative mapping* from presentation time to observation — it never
-//! changes what the state machine computes. No foreign import exists yet
-//! (V.1.3); V.1.1/V.1.2 exercise synthetic canonical vectors only.
+//! changes what the state machine computes. Synthetic canonical vectors and
+//! foreign-media imports (V.1.3, via the bridge) both feed that domain.
 
+pub mod bridge;
 pub mod color;
 pub mod core;
 pub mod epoch;
@@ -57,6 +68,9 @@ pub mod plane;
 pub mod time;
 pub mod wire;
 
+pub use bridge::{
+    import_video, verify_frames, ImportChecks, ImportLimits, ImportOptions, VerifiedImport,
+};
 pub use color::{
     ChromaLocation, ColorDescription, ColorPrimaries, ColorRange, ContentLightLevel, HdrMetadata,
     MasteringDisplay, MatrixCoefficients, TransferCharacteristic,

@@ -1,0 +1,38 @@
+   Compiling vole-video v0.19.1 (/mnt/1tb_kingston/vole)
+    Finished `release` profile [optimized] target(s) in 1.97s
+     Running `target/release/examples/import_proof`
+import proof: foreign ingest bridge (Phase V.1.3)
+tools: ffmpeg version n9.0.1 Copyright (c) 2000-2026 the FFmpeg developers | ffprobe version n9.0.1 Copyright (c) 2007-2026 the FFmpeg developers
+
+1. format matrix: file -> canonical -> oracle-verified
+   pix_fmt       pl  dp   obs   samples    oracle ground truth seq blake3
+   yuv420p        3   8     6      1944         6     authored a70d6d5862
+   yuv420p10le    3  10     6      9216         6     authored d547e7b4a1
+   gray           1   8     6      1680         6     authored d548359cbc
+   gray16le       1  16     6      3360         6     authored b33229a18b
+   yuv444p        3   8     6      4608         6     authored cbbb380050
+   yuv422p        3   8     6      3072         6     authored ca055363ae
+   gbrp           3   8     6      4608         6     authored 2caf37e451
+   nv12           3   8     6      2304         6 repack-exact b71f282e9f
+   rgb24          3   8     6      2160         6 repack-exact 3f4773fdd9
+   yuyv422        3   8     6      3072         6 repack-exact ca055363ae
+
+2. compressed sources (oracle-exact + reproducible)
+   h264 mp4: container mov,mp4,m4a,3gp,3g2,mj2, codec h264 (High), 160x90 yuv420p, 25 obs, 25 frames oracle-verified, 540000 sample bytes
+   reproducible: import twice == identical sequence digests (blake3 2feebe22d683e14c sha256 33457a5e5f76112a)
+   ffv1 mkv: 10-bit lossless round trip EXACT == authored frames (6 obs, 9216 sample bytes, depth 10 preserved)
+
+3. recorded evidence (one import)
+   ffprobe: container Some("nut"), codec Some("rawvideo"), 32x16 pix_fmt Some("yuv420p"), color Some("unknown")/Some("unknown")/Some("unknown")/Some("unknown"), tb Some("1/51200")
+   nut stream: tb [(1, 51200)] (container ticks), 3 frames
+   oracle: tb (1, 25), 3 records
+   bridge commands recorded (argv, never shell strings):
+     /usr/bin/ffprobe -v error -show_streams -select_streams v -of default=noprint_wrappers=1 /tmp/vole-v13-proof-4010186-manifest.nut
+     /usr/bin/ffmpeg -hide_banner -nostdin -loglevel error -protocol_whitelist file -i /tmp/vole-v13-proof-4010186-manifest.nut -map 0:v:0 -an -sn -dn -fps_mode passthrough -f framehash -
+     /usr/bin/ffmpeg -hide_banner -nostdin -loglevel error -protocol_whitelist file -i /tmp/vole-v13-proof-4010186-manifest.nut -map 0:v:0 -an -sn -dn -fps_mode passthrough -c:v rawvideo -f nut -write_index 0 -
+
+4. media -> canonical -> .vole (library path, V.1.2 floor + frozen v2 wire)
+   canonical raw: 9216 B over 6 obs | exact floor + v2 container: 10254 B (0.90x)
+   v2 parse -> materialize: every plane sample-exact against the imported canonical observations
+
+import proof: OK (format matrix + compressed sources + recorded evidence + media->canonical->.vole) in 1.9 s

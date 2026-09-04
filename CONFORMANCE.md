@@ -88,6 +88,12 @@ independently re-derived reference in `proof/`.
 | Phase V.1.2: v2 core wire roundtrips byte-exactly across 11 layout×depth rows (Gray 8/10/16 odd 9×7, YUV420 8/10, YUV444 8/12, GBR 8, RGB 10, RGBA 8 odd 7×5, YUVA444 8) with canonical fixpoint `write∘parse == id` | PASS |
 | Phase V.1.2: hostile typed corpus across 8 layout×depth rows (content flips ⇒ IntegrityMismatch, wrong magic/layout ⇒ typed structural errors before the digest, truncations typed, never a panic); unknown feature bits and v1-on-v2 bodies fail closed | PASS |
 | Phase V.1.2: frozen v2 grammar golden digest pinned (`a5c1fb40…6a56a80f`); programs bind to rational PTS and epoch transitions; full A–U regression clean (v1 goldens unchanged) | PASS |
+| Phase V.1.3: bounded foreign-tool runner — argv-only commands (never a shell string), wall-clock + stdout/stderr byte caps with clean kills, typed `BridgeNotFound`/`BridgeTimeout`/`BridgeOutputLimit`; unit courts pass | PASS |
+| Phase V.1.3: import matrix over 10 source layouts/depths — planar carriers (yuv420p at odd 18×12, yuv420p10le, gray, gray16le, yuv444p, yuv422p, gbrp) byte-exact against authored canonical frames, packed/semi-planar (rgb24, bgra, nv12, yuyv422) byte-exact through reversible repacking; every observation oracle-verified per frame (independent framehash SHA-256 over tight rows, exact rational PTS on each frame's own time base) | PASS |
+| Phase V.1.3: compressed sources — FFV1 Matroska 10-bit lossless round trip EXACT (depth 10 preserved); H.264 MP4 oracle-exact, 25/25 verified, deterministic BLAKE3 + SHA-256 sequence digests reproducible across re-imports; NUT stream time base (1/51200) == imported canonical time base | PASS |
+| Phase V.1.3: VFR timeline preserves exact PTS deltas (one delta > 2× modal); last-observation duration unknown, never guessed | PASS |
+| Phase V.1.3: hostile corpus typed and panic-free — NUT truncations across the whole file, wrong magic, version/CRC-region flips, payload flips; a tampered payload byte stays structurally parseable but oracle verification fails typed `CanonicalHashMismatch`, and a pristine re-parse verifies | PASS |
+| Phase V.1.3: missing tools typed (`BridgeNotFound` on empty PATH); garbage inputs fail closed (typed bridge errors, never a hang); import time base == the NUT stream time base | PASS |
 
 ## Goldens
 

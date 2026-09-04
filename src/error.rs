@@ -160,6 +160,30 @@ pub enum VoleError {
     /// epoch id is reused, or the timeline ordering contract is violated
     /// (presentation order requires strictly increasing PTS).
     EpochViolation,
+
+    // --- Phase V.1.3 foreign ingest bridge (V.1 video programme) ---
+    /// The foreign media tool (ffmpeg/ffprobe) was not found or did not start.
+    BridgeNotFound,
+
+    /// The foreign probe/decoder process failed (nonzero exit, malformed
+    /// output, or a decode error reported on its error stream).
+    BridgeProbeFailed,
+
+    /// The foreign decode process failed while producing the raw video pipe.
+    BridgeDecodeFailed,
+
+    /// A foreign child process exceeded its bounded wall-clock budget and was
+    /// killed cleanly.
+    BridgeTimeout,
+
+    /// A foreign child process exceeded its bounded output budget (stdout /
+    /// stderr bytes, frame count, or payload bytes) and was killed cleanly.
+    BridgeOutputLimit,
+
+    /// The framehash oracle record disagrees with the native NUT-derived
+    /// canonical bytes for an observation (per-observation digest, size, or
+    /// count mismatch).
+    CanonicalHashMismatch,
 }
 
 impl fmt::Display for VoleError {
@@ -250,6 +274,20 @@ impl fmt::Display for VoleError {
                 write!(f, "pixel layout or component code is reserved or unknown")
             }
             Self::EpochViolation => write!(f, "epoch or presentation-timeline contract violated"),
+            Self::BridgeNotFound => {
+                write!(
+                    f,
+                    "foreign media tool (ffmpeg/ffprobe) not found or did not start"
+                )
+            }
+            Self::BridgeProbeFailed => write!(f, "foreign probe process failed"),
+            Self::BridgeDecodeFailed => write!(f, "foreign decode process failed"),
+            Self::BridgeTimeout => write!(f, "foreign child process exceeded its wall-clock bound"),
+            Self::BridgeOutputLimit => write!(f, "foreign child process exceeded its output bound"),
+            Self::CanonicalHashMismatch => write!(
+                f,
+                "framehash oracle disagrees with the NUT-derived canonical observation"
+            ),
         }
     }
 }
