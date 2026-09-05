@@ -52,6 +52,7 @@ use crate::media::core::{
     PlaneObjectId, PlaneOp, PlanePaletteId, PlaneProgram,
 };
 use crate::media::epoch::{EpochId, VideoEpoch};
+use crate::media::global::{GlobalMap, MapShift};
 use crate::media::layout::{Component, PixelLayout};
 use crate::media::meta::{FieldStructure, Orientation, SampleAspectRatio};
 use crate::media::plane::{BitDepth, PlaneData};
@@ -62,8 +63,14 @@ use crate::trajectory::TrajectorySegment;
 /// Old files (bit clear) parse exactly as the frozen V.1.2 grammar.
 pub const FEATURE_FAMILY: u32 = 0x1;
 
+/// V.1.5 global-motion-extension feature bit: the stream may use the
+/// `GlobalPredict` canvas op (tag `0x32`, the canonical fixed-point map at a
+/// declared precision). Additive: files without the bit parse exactly as
+/// before, and extension tags without the bit fail closed typed.
+pub const FEATURE_GLOBAL: u32 = 0x2;
+
 /// Known feature bits of the v2 core container (unknown bits fail closed).
-pub const V2_FEATURES: u32 = FEATURE_FAMILY;
+pub const V2_FEATURES: u32 = FEATURE_FAMILY | FEATURE_GLOBAL;
 
 /// Canonical trajectory segment wire kinds (mirror the sealed v1 forms).
 pub const SEG_LINEAR: u8 = 0x00;
@@ -123,6 +130,7 @@ pub mod codes {
     pub const OP_BIND_PALETTE: u8 = 0x2F; // V.1.4 family extension
     pub const OP_SET_AFFINE: u8 = 0x30; // V.1.4 family extension
     pub const OP_TRANSFORM_RESIDUAL: u8 = 0x31; // V.1.4 family extension
+    pub const OP_GLOBAL_PREDICT: u8 = 0x32; // V.1.5 global-motion extension
 }
 
 fn layout_code(l: PixelLayout) -> u16 {
@@ -564,9 +572,14 @@ pub fn write_multiplane(program: &MultiPlaneProgram) -> Result<Vec<u8>, VoleErro
         ));
     }
     // The writer sets the minimal feature bits the content needs: a stream
-    // without V.1.4 family-extension surface keeps the exact V.1.2 byte form.
+    // without V.1.4 family-extension surface keeps the exact V.1.2 byte form;
+    // V.1.5 global-motion content adds bit 0x2 only.
     let features = if program.planes.iter().any(|p| p.uses_family_extension()) {
         FEATURE_FAMILY
+    } else {
+        0
+    } | if program.planes.iter().any(|p| p.uses_global_extension()) {
+        FEATURE_GLOBAL
     } else {
         0
     };
@@ -767,6 +780,16 @@ pub fn write_multiplane(program: &MultiPlaneProgram) -> Result<Vec<u8>, VoleErro
                         s.byte(codes::OP_TRANSFORM_RESIDUAL)?;
                         s.push(block.len() as u64)?;
                         s.extend(block)?;
+                    }
+                    // --- V.1.5 global-motion-extension op ---
+                    PlaneOp::GlobalPredict { map } => {
+                        map.check()?;
+                        s.byte(codes::OP_GLOBAL_PREDICT)?;
+                        s.byte(map.shift.code())?;
+                        for c in [map.a, map.b, map.c, map.d, map.e, map.f] {
+                            check_coord(c as i32)?;
+                            s.push(c as i32)?;
+                        }
                     }
                 }
             }
@@ -972,6 +995,7 @@ pub fn parse_multiplane(bytes: &[u8]) -> Result<MultiPlaneProgram, VoleError> {
         return Err(VoleError::UnsupportedFeature);
     }
     let ext = features & FEATURE_FAMILY != 0;
+    let gm = features & FEATURE_GLOBAL != 0;
     let width = r.pull::<u32>()?;
     let height = r.pull::<u32>()?;
     limits.check_canvas(width, height)?;
@@ -1123,7 +1147,7 @@ pub fn parse_multiplane(bytes: &[u8]) -> Result<MultiPlaneProgram, VoleError> {
                     }
                     let mut ops = Vec::with_capacity(n_ops as usize);
                     for _ in 0..n_ops {
-                        ops.push(read_op(&mut r, depth, &limits, ext)?);
+                        ops.push(read_op(&mut r, depth, &limits, ext, gm)?);
                     }
                     intervals.push((t, ops));
                 }
@@ -1272,6 +1296,7 @@ fn read_op(
     depth: BitDepth,
     limits: &Limits,
     ext: bool,
+    gm: bool,
 ) -> Result<PlaneOp, VoleError> {
     let tag = r.u8()?;
     Ok(match tag {
@@ -1489,6 +1514,30 @@ fn read_op(
             }
             let block = r.take_vec(len as usize)?;
             PlaneOp::TransformResidual { block }
+        }
+        // --- V.1.5 global-motion-extension op (tag requires the bit) ---
+        codes::OP_GLOBAL_PREDICT => {
+            if !gm {
+                return Err(VoleError::NonCanonicalEncoding);
+            }
+            let shift = MapShift::from_code(r.u8()?).ok_or(VoleError::NonCanonicalEncoding)?;
+            let mut c = [0i64; 6];
+            for v in &mut c {
+                let x = i64::from(r.pull::<i32>()?);
+                check_coord(x as i32)?;
+                *v = x;
+            }
+            let map = GlobalMap {
+                shift,
+                a: c[0],
+                b: c[1],
+                c: c[2],
+                d: c[3],
+                e: c[4],
+                f: c[5],
+            };
+            map.check()?;
+            PlaneOp::GlobalPredict { map }
         }
         _ => return Err(VoleError::NonCanonicalEncoding),
     })

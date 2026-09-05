@@ -3,12 +3,14 @@
 This document is the normative, byte-level wire format implemented by
 `src/media/wire.rs`, `src/checked.rs`, and `src/integr.rs`. The v2 grammar was
 **frozen at the end of Phase V.1.2** (V.1 video programme) and **deliberately
-extended and re-frozen at the end of Phase V.1.4**: feature bit `0x1` (the
-*family extension*) adds the ported representation families — palette-index
-and generator object content, per-instance velocity/trajectory/affine state
-and palette bindings (both as interval ops and as the initial-state tail), and
-the transform-coded residual op. The extension is additive: files without bit
-`0x1` keep their exact V.1.2 byte meaning, and the V.1.2 golden stays pinned.
+extended and re-frozen at the end of Phase V.1.4** (feature bit `0x1`, the
+*family extension*: palette-index and generator object content, per-instance
+velocity/trajectory/affine state and palette bindings — both as interval ops
+and as the initial-state tail — and the transform-coded residual op) and
+**again at the end of Phase V.1.5** (feature bit `0x2`, the *global-motion
+extension*: the `GlobalPredict` canvas op below). Both extensions are
+additive: files without a bit keep their exact earlier byte meaning, and the
+V.1.2 and V.1.4 goldens stay pinned.
 The writer is the canonical emitter; the parser is the hostile-safe reader;
 this document is the authoritative description both must satisfy. There is
 **no generic serialization** (no serde/bincode/postcard/CBOR…). All multi-byte
@@ -48,13 +50,13 @@ Numbering: all fields fixed-width unless noted.
 | 5 | 2 | format_version | must equal `2` |
 | 7 | 4 | universe_id | must equal `2` (video universe v2) |
 | 11 | 1 | limit_profile | must equal `1` (the frozen v1 envelope, applied per plane) |
-| 12 | 4 | feature_bits | bit `0x1` (family extension) declares the V.1.4 surface below; every other bit must be `0` |
+| 12 | 4 | feature_bits | bit `0x1` (family extension) declares the V.1.4 surface; bit `0x2` (global-motion extension) declares the V.1.5 surface; every other bit must be `0` |
 | 16 | 4 | coded width | samples/row of the epoch's luma/canvas geometry |
 | 20 | 4 | coded height | rows of the epoch's luma/canvas geometry |
 
 Wrong magic ⇒ `BadMagic`. Wrong version/universe/profile ⇒ `Unsupported*`.
-A nonzero feature bit outside `0x1` ⇒ `UnsupportedFeature`. A reserved byte
-≠ 0 ⇒ `NonCanonicalEncoding`. Width/height over the profile envelope ⇒
+A nonzero feature bit outside `0x1 | 0x2` ⇒ `UnsupportedFeature`. A reserved
+byte ≠ 0 ⇒ `NonCanonicalEncoding`. Width/height over the profile envelope ⇒
 `DimensionTooLarge`.
 
 ### MediaDescriptor (tag `0x11`)
@@ -191,6 +193,7 @@ Interval := t:u64  op_count:u32  Op*
 | `0x2F` | BindPalette | `instance:u32 palette:u32` (family extension) |
 | `0x30` | SetAffine | `id:u32 a:i32 b:i32 c:i32 d:i32 e:i32 f:i32` (family extension; Q8) |
 | `0x31` | TransformResidual | `byte_len:u64` + transform block (family extension) |
+| `0x32` | GlobalPredict | `shift:u8 a:i32 b:i32 c:i32 d:i32 e:i32 f:i32` (global-motion extension; see below) |
 
 * `DeclareObject` inside an interval group is a state transition (immutable
   content; duplicate or reused id ⇒ `DuplicateId`; declaration order is
@@ -231,9 +234,25 @@ Interval := t:u64  op_count:u32  Op*
   to the current render (a result outside the active depth is typed
   `OutOfBounds`). The container framing, mask padding, and coefficient counts
   are canonical-checked like the sealed v1 phase-M block.
+* `GlobalPredict` (global-motion extension): predicts the whole plane from the
+  plane's **immediately previous materialized observation** through a
+  canonical fixed-point map — destination `(x, y)` samples the previous plane
+  at `((a·x + b·y + c) >> shift, (d·x + e·y + f) >> shift)` with signed floor
+  division and `shift` from the map-shift registry (`8` = Q8, the sealed v1
+  precision; `12` = Q12; `16` = Q16). The source sample is painted only when
+  it lies inside the previous plane; otherwise the destination keeps the
+  current interval's render (the `CopyRect` clip rule). Coefficients are in
+  the canonical `±2^24` domain; a `shift` outside the registry or an
+  out-of-domain coefficient ⇒ `NonCanonicalEncoding`. A per-materialization
+  work budget (`Limits.max_motion_work`) caps how many whole-plane warps one
+  materialization may execute (⇒ `MaterializationBudgetExceeded`). The
+  identity map is a whole-plane hold of the previous observation (valid; the
+  map arithmetic is the sealed v1 Phase-L integer rule at the declared
+  precision — never floating point).
 * Unknown op tags ⇒ `NonCanonicalEncoding`. Family-extension tags and content
   kinds without the feature bit ⇒ `NonCanonicalEncoding` (they may only be
-  used when bit `0x1` is declared).
+  used when bit `0x1` is declared); `GlobalPredict` without bit `0x2` ⇒
+  `NonCanonicalEncoding`.
 
 ### Family-extension tail (feature bit `0x1`)
 
@@ -305,11 +324,13 @@ An interval group at `t` first applies its state transitions in listed order
 `SetVelocity` / `AdvanceTranslations` / `SetTrajectory` /
 `AdvanceTrajectories` / `SetPalette` / `PatchPalette` / `BindPalette` /
 `SetAffine`), then renders the state **fresh**, then applies that interval's
-canvas ops in listed order (`CopyRect` from the previous materialized
-observation, `Residual` overwrite, `TransformResidual` additive blocks).
-**Canvas ops are one-shot: they never persist into later frames** — a later
-interval starts again from the fresh state render. An empty interval group
-therefore reproduces the state render exactly (unchanged frame).
+canvas ops in listed order (`CopyRect` and `GlobalPredict` from the previous
+materialized observation — snapshot semantics, dependency depth 1, out-of-
+bounds sources keep the fresh render — and the `Residual` overwrite /
+`TransformResidual` additive blocks). **Canvas ops are one-shot: they never
+persist into later frames** — a later interval starts again from the fresh
+state render. An empty interval group therefore reproduces the state render
+exactly (unchanged frame).
 
 Velocity semantics (v1 Phase-E mirror): a `SetVelocity (vx, vy)` instance gains
 `(vx, vy)` once per `AdvanceTranslations`; `(0,0)` deactivates. Trajectory
@@ -363,14 +384,17 @@ Object kinds (`u8`): `1` fill · `2` raster · `3` index (family extension) ·
 Plane/descriptor tags: `0x10` plane block · `0x11` media descriptor.
 
 Op tags: `0x21` … `0x28` (core) · `0x29` … `0x31` (family extension, table
-above).
+above) · `0x32` (global-motion extension).
 
 Trajectory segment kinds: `0x00` linear · `0x01` accel.
 
 Tail motion kinds: `0x01` velocity · `0x02` trajectory · `0x03` affine ·
 `0x04` binding.
 
-Feature bits: `0x1` family extension (all V.1.4 surface).
+Feature bits: `0x1` family extension (all V.1.4 surface) · `0x2`
+global-motion extension (the V.1.5 `GlobalPredict` op).
+
+Map-shift registry (`u8`, `GlobalPredict`): `8` Q8 · `12` Q12 · `16` Q16.
 
 ## Canonical rules (summary)
 
@@ -384,6 +408,10 @@ Feature bits: `0x1` family extension (all V.1.4 surface).
   points, residual triples, interval times. The residual point list is
   strictly ascending by `(x, y)` (row-major scans are not, and must be
   sorted before encoding).
+* `GlobalPredict` maps are canonical fixed-point records: `shift` in the
+  registry and every coefficient in `±2^24` (the sealed v1 domain, shared
+  with the Q8 affine coefficients). The map arithmetic is checked
+  (overflow is a typed error, never a wrap).
 * Object ids are never reused in a plane program. Instance ids are unique
   among live instances.
 * Every count and length is bounded by the frozen limit profile (v1
@@ -403,18 +431,20 @@ Feature bits: `0x1` family extension (all V.1.4 surface).
 * Side data (HDR mastering/CLL, orientation override, timecode): epochs with
   side data cannot be serialized by the v2 core writer and fail typed rather
   than dropping metadata.
-* The transport/store/archive layers over v2, subpixel/global/local motion
-  descriptor families (V.1.5–V.1.10 entry-gated), and the hierarchical
-  inverse DAG over the family surface (V.1.11+).
+* The transport/store/archive layers over v2, subpixel / local-motion
+  descriptor families and their shared cross-plane geometry (V.1.6–V.1.10
+  entry-gated), and the hierarchical inverse DAG over the family surface
+  (V.1.11+).
 
 ## Conformance
 
 * v1 files decode forever under v1 semantics (unchanged, permanently
   supported); v2 never reinterprets v1.
-* v2 files without feature bit `0x1` keep their exact V.1.2 byte meaning and
+* v2 files without feature bits keep their exact earlier byte meaning and
   parse identically (the V.1.2 authored-specialization golden below is
-  unchanged). Any deliberate grammar change re-freezes this document, the
-  goldens, and the hostile corpus together.
+  unchanged; the V.1.4 extension golden is unchanged). Any deliberate grammar
+  change re-freezes this document, the goldens, and the hostile corpus
+  together.
 * Frozen goldens: the canonical v2 core container of the V.1.2 authored
   specialization scenario (48×32 Gray8, two objects, five `SetPosition`
   intervals) has a fixed payload BLAKE3 of
@@ -422,5 +452,9 @@ Feature bits: `0x1` family extension (all V.1.4 surface).
   pinned in `tests/phase_v1_2.rs`; the canonical V.1.4 extension scenario
   (16×12 Gray8 palette-index content with an initial binding and a palette
   patch interval) is pinned in `tests/phase_v1_4.rs` at
-  `55c7f4cce95c19f5d326a5bb084e058f3b6ba06ebe288656c78253d00d625007`.
-  Neither file is ever reinterpreted.
+  `55c7f4cce95c19f5d326a5bb084e058f3b6ba06ebe288656c78253d00d625007`; the
+  canonical V.1.5 extension scenario (16×12 Gray8, a Q16 `GlobalPredict`
+  translation plus a sparse residual strip) is pinned in
+  `tests/phase_v1_5.rs` at
+  `2791d62289d601a59ce0d1f0884738a6f4d939657cc438666f0a72500ecbbae9`.
+  None of the files is ever reinterpreted.

@@ -1,0 +1,40 @@
+    Finished `release` profile [optimized] target(s) in 0.01s
+     Running `target/release/examples/global_proof`
+global proof: global video structure (Phase V.1.5)
+
+1. pan (96x64 Gray8, 6 observations, +2/+1 per frame)
+   total interval bytes 6643 | observations 5 | raw-floor 30975 | ratio 4.66x
+   family global_translation obs 5 interval-bytes 6643
+   family global_rotzoom obs 0 interval-bytes 0
+   family global_affine obs 0 interval-bytes 0
+   search work 8792464 | candidate evaluations 20
+
+2. zoom-in (64x64 Gray8, 6 observations, 1.5%/frame)
+   forced Q8  interval-bytes  18673 (container 22913 B) | global bytes 15127
+   forced Q12 interval-bytes  18673 (container 22913 B) | global bytes 15127
+   forced Q16 interval-bytes  18673 (container 22913 B) | global bytes 15127
+   auto         interval-bytes  18673 | container 22913 B | raw-floor 20735 | per-shift {
+    8: 15127,
+}
+   family global_translation obs 4 interval-bytes 15127
+   family global_rotzoom obs 0 interval-bytes 0
+   family global_affine obs 0 interval-bytes 0
+
+3. multiplane pan (10-bit YUV420 48x32, 6 observations, Y +4/+2, C +2/+1)
+   total interval bytes 11619 | observations 15 | raw-floor 23805 | ratio 2.05x
+   family global_translation obs 15 interval-bytes 11619
+   family global_rotzoom obs 0 interval-bytes 0
+   family global_affine obs 0 interval-bytes 0
+
+4. noise negative control (64x48 Gray8, 5 observations)
+   total interval bytes 12492 | raw-floor 12492 | global observations 0 (must be 0)
+
+5. family ablation on the pan run (global motion on/off)
+   with global 6643 B | without global 30975 B (the V.1.5 classes own the pan)
+
+6. estimator (96x64 pair) — work 1709426 samples | 1 hypothesis classes
+
+7. V.1.5 extension golden (16x12 Gray8, GlobalPredict Q16 + residual)
+   digest 2791d62289d601a59ce0d1f0884738a6f4d939657cc438666f0a72500ecbbae9 | container 624 B
+
+global proof: OK in release (exact global structure + precision court + wire)

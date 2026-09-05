@@ -76,6 +76,12 @@ pub struct Limits {
     /// so many affine instances must not multiply unbounded per-frame work.
     /// Expressed in canvas samples; default 8 full-canvas affine paints.
     pub max_affine_work: u64,
+    /// Cumulative per-materialization sample budget for global-motion
+    /// predictions (Phase V.1.5): each `GlobalPredict` canvas op scans the
+    /// whole plane, so many warps per interval must not multiply unbounded
+    /// per-frame work. Expressed in plane samples; default 8 full-plane
+    /// warps (symmetric to `max_affine_work`).
+    pub max_motion_work: u64,
 }
 
 impl Default for Limits {
@@ -104,6 +110,7 @@ impl Default for Limits {
             max_palette_entries: 256,
             max_palettes: 4096,
             max_affine_work: 8 * (1920 * 1080),
+            max_motion_work: 8 * (1920 * 1080),
         }
     }
 }

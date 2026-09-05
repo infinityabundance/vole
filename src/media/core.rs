@@ -20,7 +20,12 @@
 //! 4×4 lifting DCT) — each with its v1 meaning mirrored exactly in the plane's
 //! sample domain (depth-8 Gray identity is courted). The family extension is
 //! wire-additive under v2 feature bit 0x1 (`docs/format-v2.md`); historical
-//! v1 Gray8 behavior remains an exact specialization.
+//! v1 Gray8 behavior remains an exact specialization. V.1.5 (brief §61–§63)
+//! adds the **global-motion canvas op** [`PlaneOp::GlobalPredict`]
+//! (wire-additive under feature bit 0x2): the whole plane predicts from its
+//! previous materialized observation through a canonical fixed-point map (the
+//! sealed Phase-L integer rule at a declared precision) with exact per-plane
+//! residual closure.
 //!
 //! Replay semantics mirror v1 exactly, generalized to the sample domain:
 //!
@@ -32,10 +37,11 @@
 //!   dropped);
 //! * an interval group separates state transitions from canvas ops, applies
 //!   state transitions in listed order, materializes the base, then applies
-//!   canvas ops in listed order — COPY_RECT reads the plane's *previous*
-//!   materialized observation, and the residual ops (sparse and
-//!   transform-coded) are self-contained overwrite/additions over the fresh
-//!   render, values in the plane's active domain;
+//!   canvas ops in listed order — COPY_RECT and GlobalPredict read the
+//!   plane's *previous* materialized observation (snapshot semantics), and
+//!   the residual ops (sparse and transform-coded) are self-contained
+//!   overwrite/additions over the fresh render, values in the plane's active
+//!   domain;
 //! * motion state (velocity / trajectory / affine / palette binding) dies
 //!   with its instance; palettes persist across instance clears, mirroring v1.
 //!
@@ -48,6 +54,7 @@ use crate::error::VoleError;
 use crate::limits::Limits;
 use crate::media::epoch::VideoEpoch;
 use crate::media::gen::Gen;
+use crate::media::global::GlobalMap;
 use crate::media::picture::Picture;
 use crate::media::plane::{BitDepth, Plane, PlaneData, PlaneStorage};
 use crate::rans;
@@ -329,6 +336,20 @@ pub enum PlaneOp {
         /// The transform block.
         block: Vec<u8>,
     },
+    // --- V.1.5 global-motion extension (feature bit 0x2) ---
+    /// Predict the whole plane from its immediately previous materialized
+    /// observation through a canonical fixed-point map (the sealed Phase-L
+    /// integer rule at a declared precision): destination `(x, y)` samples the
+    /// previous plane at `((a·x + b·y + c) >> s, (d·x + e·y + f) >> s)` and is
+    /// painted only when that source lies inside the previous plane —
+    /// otherwise the sample keeps the interval's fresh state render
+    /// (mirroring the `CopyRect` clip rule). Canvas op, one-shot, snapshot
+    /// semantics (dependency depth 1); per-materialization work is capped by
+    /// [`Limits::max_motion_work`].
+    GlobalPredict {
+        /// The canonical fixed-point map (dest → source).
+        map: GlobalMap,
+    },
 }
 
 /// One record of a plane program's **initial** motion/palette-binding state
@@ -449,6 +470,15 @@ impl PlaneProgram {
                     PlaneOp::DeclareObject { object, .. } if content_ext(object)
                 )
             })
+        })
+    }
+
+    /// Whether the program uses any V.1.5 global-motion surface (the
+    /// [`PlaneOp::GlobalPredict`] canvas op) — decides feature bit `0x2`.
+    pub fn uses_global_extension(&self) -> bool {
+        self.intervals.iter().any(|(_, ops)| {
+            ops.iter()
+                .any(|op| matches!(op, PlaneOp::GlobalPredict { .. }))
         })
     }
 }
@@ -1482,6 +1512,7 @@ pub fn materialize_plane(
     }
     // Initial observation.
     let mut prev = render_plane(&state, width, height, depth, limits)?;
+    let mut motion_work = 0u64;
     for (t, ops) in &prog.intervals {
         if *t > idx {
             break;
@@ -1516,6 +1547,21 @@ pub fn materialize_plane(
                     let mut pic = single_plane_picture(width, height, depth, dst)?;
                     apply_plane_transform_block(&mut pic, &block, limits, depth)?;
                     base = pic.into_planes().pop().expect("single plane");
+                }
+                PlaneOp::GlobalPredict { map } => {
+                    // Whole-plane scan per op; cumulative per-materialization
+                    // motion work is capped (a hostile stream cannot multiply
+                    // whole-plane warps without bound — brief §214).
+                    motion_work = motion_work.saturating_add(u64::from(width) * u64::from(height));
+                    if motion_work > limits.max_motion_work {
+                        return Err(VoleError::MaterializationBudgetExceeded);
+                    }
+                    let src = prev.data().clone();
+                    let dst = base.data().clone();
+                    let src_pic = single_plane_picture(width, height, depth, src)?;
+                    let mut dst_pic = single_plane_picture(width, height, depth, dst)?;
+                    apply_global_predict_u32(&mut dst_pic, &src_pic, map)?;
+                    base = dst_pic.into_planes().pop().expect("single plane");
                 }
                 _ => return Err(VoleError::NonCanonicalEncoding),
             }
@@ -1580,6 +1626,34 @@ fn advance_trajectories(state: &mut PlaneState) -> Result<(), VoleError> {
     }
     for id in finished {
         state.trajectories.remove(&id);
+    }
+    Ok(())
+}
+
+/// Apply a canonical global-motion map to a destination picture, sampling the
+/// source picture (the previous observation) at the mapped coordinate: a
+/// destination sample is painted only when the mapped source lies inside the
+/// source picture (otherwise it keeps its current value — mirroring the
+/// `CopyRect` clip rule). Deterministic, integer-only, snapshot semantics
+/// (the source picture is never written).
+fn apply_global_predict_u32(
+    dst: &mut Picture,
+    src: &Picture,
+    map: GlobalMap,
+) -> Result<(), VoleError> {
+    let dw = i64::from(dst.plane(0).expect("dst").width());
+    let dh = i64::from(dst.plane(0).expect("dst").height());
+    let sw = i64::from(src.plane(0).expect("src").width());
+    let sh = i64::from(src.plane(0).expect("src").height());
+    for y in 0..dh {
+        for x in 0..dw {
+            let (su, sv) = map.source(x, y).ok_or(VoleError::ArithmeticOverflow)?;
+            if su < 0 || sv < 0 || su >= sw || sv >= sh {
+                continue;
+            }
+            let v = src.get(0, su as u32, sv as u32).expect("in bounds");
+            dst.put(0, x as u32, y as u32, v)?;
+        }
     }
     Ok(())
 }

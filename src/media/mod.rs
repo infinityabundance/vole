@@ -49,6 +49,14 @@
 //! [`CanonicalVideo`]. NUT/FFmpeg are non-normative and never appear inside
 //! `.vole`.
 //!
+//! V.1.5 adds the **global video structure** layer over that core:
+//! [`global`] holds the normative fixed-point map (`GlobalMap`/`MapShift`,
+//! the v2 global-motion extension under feature bit `0x2`) and the
+//! encoder-only deterministic estimator (`estimate_global`); the family
+//! encoder ([`encode`]) gains the whole-plane `global_translation` /
+//! `global_rotzoom` / `global_affine` prediction candidates with per-record
+//! map-precision pricing (brief §61–§63, §248).
+//!
 //! The separation of the two clocks is deliberate and normative (contract
 //! §2.2): the procedural state machine keeps v1's explicit-interval semantics
 //! (`crate::time::Interval`); the media timeline in this module is a
@@ -62,6 +70,7 @@ pub mod core;
 pub mod encode;
 pub mod epoch;
 pub mod gen;
+pub mod global;
 pub mod ingest;
 pub mod layout;
 pub mod meta;
@@ -83,11 +92,13 @@ pub use core::{
     PlanePaletteId, PlaneProgram, PlaneTrajectoryState,
 };
 pub use encode::{
-    encode_pictures_families, EncodeReport, FamilyTotals, FAMILY_COPY, FAMILY_EXACT, FAMILY_FILL,
-    FAMILY_GENERATOR, FAMILY_PALETTE, FAMILY_RAW, FAMILY_REGIONS, FAMILY_SPARSE, FAMILY_TRANSFORM,
-    FAMILY_TRANSLATION, FAMILY_UNCHANGED,
+    encode_pictures_families, encode_pictures_families_with, EncodeOptions, EncodeReport,
+    FamilyTotals, FAMILY_COPY, FAMILY_EXACT, FAMILY_FILL, FAMILY_GENERATOR, FAMILY_GLOBAL_AFFINE,
+    FAMILY_GLOBAL_ROTZOOM, FAMILY_GLOBAL_TRANSLATION, FAMILY_PALETTE, FAMILY_RAW, FAMILY_REGIONS,
+    FAMILY_SPARSE, FAMILY_TRANSFORM, FAMILY_TRANSLATION, FAMILY_UNCHANGED,
 };
 pub use epoch::{CanonicalVideo, CanonicalVideoObservation, EpochId, PlaneTemplate, VideoEpoch};
+pub use global::{estimate_global, GlobalHypothesis, GlobalMap, MapShift, MotionClass};
 pub use ingest::{encode_pictures_exact, ramp_picture, uniform_picture};
 pub use layout::{Component, PackedSourceLayout, PixelLayout};
 pub use meta::{

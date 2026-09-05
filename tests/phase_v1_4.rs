@@ -982,6 +982,12 @@ impl Compositor {
                 // courted by the parity + property tests).
                 unreachable!("compositor does not run transform ops");
             }
+            PlaneOp::GlobalPredict { .. } => {
+                // V.1.4 compositor courts never emit the V.1.5 global-motion
+                // canvas op (its independent-compositor courts live in
+                // `tests/phase_v1_5.rs`).
+                unreachable!("compositor does not run global-motion ops");
+            }
         }
     }
 }

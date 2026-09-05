@@ -174,7 +174,7 @@ vole encode --width 1920 --height 1080 --frames 101 box.raw box.vole
 
 ## Status
 
-**Current head: Phase V.1 (video half) V.1.4 sealed** — the mandated ladder
+**Current head: Phase V.1 (video half) V.1.5 sealed** — the mandated ladder
 **A → U is complete**; the post-U research programme runs in its own
 subphase order. V.1.0 audit + architecture contract
 (`docs/phase-v1-video-architecture.md`), V.1.1 canonical media domain
@@ -188,16 +188,22 @@ oracle, exact raster-origin ingest floor, and the frozen v2 core grammar in
 manifest, independent framehash SHA-256 oracle, narrow hostile-safe NUT pipe
 reader with exact PTS, reversible source-layout canonicalizer, and
 `import_video` proving every canonical observation per frame — FFmpeg/NUT
-are non-normative, import-only, and never appear inside `.vole`), and V.1.4
+are non-normative, import-only, and never appear inside `.vole`), V.1.4
 the **existing-family generalization** (`src/media/gen.rs` depth-aware
 procedural generators; palette-index content + per-plane palette state,
 persistent velocity/trajectory motion, Q8 affine placement, and the
 Phase-M transform-coded residual in `src/media/core.rs`; the additive v2
 family-extension wire under feature bit 0x1 — palette/generator object
 kinds, ops `0x29`–`0x31`, initial palette/motion tail; and the per-plane
-family encoder `src/media/encode.rs` over the exact floor) are sealed;
-**next is V.1.5 (global video structure: translation/rotzoom/affine
-proposals over real video)**.
+family encoder `src/media/encode.rs` over the exact floor), and V.1.5 the
+**global video structure** (`src/media/global.rs`: the additive v2
+global-motion extension under feature bit 0x2 — the `GlobalPredict` canvas
+op (tag `0x32`) predicting the whole plane from the previous observation
+through a canonical fixed-point map at a declared Q8/Q12/Q16 precision;
+and the deterministic bounded translation/rotzoom/affine estimator feeding
+global_translation/global_rotzoom/global_affine candidates in the family
+encoder, with per-record precision priced and reported) are sealed;
+**next is V.1.6 (local motion: region translation / bounded motion field)**.
 The phase ledger, mechanism ledger, per-phase receipts, and frozen format
 decisions are authoritative and kept current:
 
@@ -218,10 +224,12 @@ only measured, courted mechanisms are.
 ## Release
 
 Published on crates.io as [`vole-video`](https://crates.io/crates/vole-video)
-(lib `vole_video`; the `vole` binary). Current: **v0.21.0 — Phases A–U sealed
-plus V.1.0–V.1.4** (the full mandated ladder, then the V.1 video programme's
+(lib `vole_video`; the `vole` binary). Current: **v0.22.0 — Phases A–U sealed
+plus V.1.0–V.1.5** (the full mandated ladder, then the V.1 video programme's
 audit, canonical media domain, multiplane core + frozen v2 core wire, foreign
-ingest bridge, and the existing-family generalization).
+ingest bridge, the existing-family generalization, and the global video
+structure: the v2 global-motion extension with the `GlobalPredict` canvas op
+and the global_translation/rotzoom/affine encoder families).
 The `entropyfs-store` cargo feature (default OFF) links the real EntropyFS
 engine adapter; the standalone build never needs it.
 

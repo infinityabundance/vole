@@ -1,6 +1,7 @@
-//! Per-plane family encoder — Phase V.1.4 (V.1 video programme, brief §44–§50,
-//! §247: the sealed v1 representation families generalized to the canonical
-//! multiplane domain over the V.1.2 exact raster-origin floor).
+//! Per-plane family encoder — Phase V.1.4 + V.1.5 (V.1 video programme, brief
+//! §44–§50, §61–§63, §247–§248: the sealed v1 representation families
+//! generalized to the canonical multiplane domain over the V.1.2 exact
+//! raster-origin floor, plus the global-video-structure proposals).
 //!
 //! [`encode_pictures_families`] turns an observed sequence of canonical
 //! [`Picture`]s (one epoch's plane table) into a [`MultiPlaneProgram`] that
@@ -30,6 +31,17 @@
 //! * `exact` — a target equal to an already-declared whole-plane object reuses
 //!   it without re-declaring (replacement by re-instantiation).
 //!
+//! V.1.5 (brief §61–§63, §248) adds the **global-motion classes**: the whole
+//! plane predicts from the immediately previous observation through a
+//! canonical fixed-point map (`GlobalPredict`, feature bit `0x2`) proposed by
+//! a deterministic translation / rotzoom / affine estimator
+//! ([`crate::media::global::estimate_global`] — f64 is permitted there and
+//! only there), quantized at the map precision whose exact normative
+//! simulation prices least ([`MapShift`] registry, brief §62 court), and
+//! closed by an exact sparse/transform residual. The proposal never has
+//! authority: only the normative materialization + complete-byte cost
+//! decides, and the chosen per-record precision is measured in the report.
+//!
 //! Candidates that do not change the committed state render (the residual and
 //! copy classes) are one-shot canvas ops — mirroring v1, they never persist —
 //! so a settled run after drift is served by one state sync + empty groups
@@ -42,10 +54,11 @@
 //! (that is V.1.11, with DSFB governance in V.1.12): search here is a bounded,
 //! deterministic per-family proposal over the plane domain with exact local
 //! cost evaluation, and the RAW/SPARSE sentinels always stay alive (§110).
-//! Trajectory *promotion over time* (temporal-span search) and affine
-//! *proposals over real video* (V.1.5) are later-subphase work; the
-//! trajectory/affine semantics themselves are sealed in [`crate::media::core`]
-//! and courted separately.
+//! Trajectory *promotion over time* (temporal-span search) is later-subphase
+//! work; the trajectory/affine semantics themselves are sealed in
+//! [`crate::media::core`] and courted separately. Global-motion *decoder
+//! semantics* are sealed here and in [`crate::media::global`]; the V.1.5
+//! encoder estimates per plane (chroma planes on their own subsampled grids).
 
 use std::collections::BTreeMap;
 
@@ -57,6 +70,9 @@ use crate::media::core::{
 };
 use crate::media::epoch::VideoEpoch;
 use crate::media::gen::Gen;
+use crate::media::global::{
+    estimate_global, match_tolerance, GlobalHypothesis, GlobalMap, MapShift, MotionClass,
+};
 use crate::media::picture::Picture;
 use crate::media::plane::{BitDepth, Plane, PlaneData};
 
@@ -72,15 +88,23 @@ pub const FAMILY_TRANSLATION: &str = "translation";
 pub const FAMILY_PALETTE: &str = "palette";
 pub const FAMILY_GENERATOR: &str = "generator";
 pub const FAMILY_EXACT: &str = "exact";
+/// V.1.5 global-motion family labels (whole-plane prediction from the
+/// previous observation through a canonical map).
+pub const FAMILY_GLOBAL_TRANSLATION: &str = "global_translation";
+pub const FAMILY_GLOBAL_ROTZOOM: &str = "global_rotzoom";
+pub const FAMILY_GLOBAL_AFFINE: &str = "global_affine";
 
 /// Deterministic family evaluation order (also the tie order).
-const FAMILY_ORDER: [&str; 11] = [
+const FAMILY_ORDER: [&str; 14] = [
     FAMILY_UNCHANGED,
     FAMILY_FILL,
     FAMILY_RAW,
     FAMILY_EXACT,
     FAMILY_PALETTE,
     FAMILY_GENERATOR,
+    FAMILY_GLOBAL_TRANSLATION,
+    FAMILY_GLOBAL_ROTZOOM,
+    FAMILY_GLOBAL_AFFINE,
     FAMILY_SPARSE,
     FAMILY_TRANSFORM,
     FAMILY_TRANSLATION,
@@ -129,6 +153,12 @@ pub struct EncodeReport {
     /// The bytes a RAW whole-plane replacement would have spent per interval
     /// (the honest floor reference; measured, not hidden).
     pub raw_floor_bytes: u64,
+    /// V.1.5: how many intervals chose each map precision (registry code →
+    /// observations) — the §62 court's measured outcome, per run.
+    pub map_shift_observations: BTreeMap<u8, u64>,
+    /// V.1.5: interval bytes chosen at each map precision (registry code →
+    /// bytes) — never assumed, always measured.
+    pub map_shift_bytes: BTreeMap<u8, u64>,
 }
 
 impl EncodeReport {
@@ -141,6 +171,19 @@ impl EncodeReport {
     pub fn family_bytes_sum(&self) -> u64 {
         self.families.values().map(|f| f.interval_bytes).sum()
     }
+}
+
+/// Options of one family-encode run (V.1.5 ablation + precision court).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EncodeOptions {
+    /// Force every global-motion record to this map precision (the §62 court:
+    /// encode the same footage at Q8/Q12/Q16 and measure). `None` = each
+    /// record is priced at every registry precision and the cheapest wins
+    /// (ties prefer the lower precision).
+    pub map_shift: Option<MapShift>,
+    /// Disable the global-motion family entirely (family ablation court: the
+    /// same footage with and without the V.1.5 classes).
+    pub disable_global: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +394,7 @@ fn ops_wire_bytes(ops: &[PlaneOp]) -> u64 {
             PlaneOp::PatchPalette { changes, .. } => b += 1 + 4 + 4 + changes.len() as u64 * 8,
             PlaneOp::BindPalette { .. } => b += 1 + 4 + 4,
             PlaneOp::SetAffine { .. } => b += 1 + 4 + 4 * 6,
+            PlaneOp::GlobalPredict { .. } => b += GlobalMap::wire_bytes(),
         }
     }
     b
@@ -485,6 +529,9 @@ struct Decision {
     ops: Vec<PlaneOp>,
     bytes: u64,
     syncs_state: bool,
+    /// V.1.5: the map precision of a chosen global-motion record (registry
+    /// code), `None` for every other family.
+    map_shift: Option<u8>,
 }
 
 /// One plane of the encode in progress.
@@ -603,6 +650,7 @@ impl PlaneEncoder {
             bytes: interval_bytes(&ops),
             ops,
             syncs_state: true,
+            map_shift: None,
         }
     }
 }
@@ -613,6 +661,16 @@ impl PlaneEncoder {
 pub fn encode_pictures_families(
     epoch: &VideoEpoch,
     observations: &[Picture],
+) -> Result<(MultiPlaneProgram, EncodeReport), VoleError> {
+    encode_pictures_families_with(epoch, observations, EncodeOptions::default())
+}
+
+/// [`encode_pictures_families`] with explicit options (V.1.5 ablations: force
+/// a map precision for the §62 court, or disable the global-motion family).
+pub fn encode_pictures_families_with(
+    epoch: &VideoEpoch,
+    observations: &[Picture],
+    opts: EncodeOptions,
 ) -> Result<(MultiPlaneProgram, EncodeReport), VoleError> {
     if observations.is_empty() {
         return Err(VoleError::ApiConstraint(
@@ -638,6 +696,8 @@ pub fn encode_pictures_families(
         search_work: 0,
         state_syncs: 0,
         raw_floor_bytes: 0,
+        map_shift_observations: BTreeMap::new(),
+        map_shift_bytes: BTreeMap::new(),
     };
 
     for t in 1..n_obs {
@@ -648,7 +708,7 @@ pub fn encode_pictures_families(
                 .clone();
             let target_samples = sample_vec(target.data());
             let work_before = enc.search_work;
-            let (decision, evaluations) = encode_interval(enc, &target, &target_samples);
+            let (decision, evaluations) = encode_interval(enc, &target, &target_samples, &opts);
             let work_after = enc.search_work;
             report.search_work += work_after - work_before;
             report.candidate_evaluations += evaluations;
@@ -658,6 +718,10 @@ pub fn encode_pictures_families(
                 if d.syncs_state {
                     report.state_syncs += 1;
                     enc.state = target_samples.clone();
+                }
+                if let Some(s) = d.map_shift {
+                    *report.map_shift_observations.entry(s).or_insert(0) += 1;
+                    *report.map_shift_bytes.entry(s).or_insert(0) += bytes;
                 }
                 enc.prog.intervals.push((t, d.ops));
                 report.raw_floor_bytes += raw_floor_bytes_of(enc.w, enc.h, enc.depth);
@@ -714,6 +778,7 @@ fn encode_interval(
     enc: &mut PlaneEncoder,
     target: &Plane,
     target_samples: &[u32],
+    opts: &EncodeOptions,
 ) -> (Option<Decision>, u64) {
     let mut best: Option<Decision> = None;
     let mut evaluations = 0u64;
@@ -736,6 +801,7 @@ fn encode_interval(
                 ops: Vec::new(),
                 bytes: group_framing(0),
                 syncs_state: false,
+                map_shift: None,
             }),
             1,
         );
@@ -761,6 +827,7 @@ fn encode_interval(
                 ops,
                 bytes,
                 syncs_state: false,
+                map_shift: None,
             },
             &mut best,
         );
@@ -777,6 +844,7 @@ fn encode_interval(
                     ops,
                     bytes,
                     syncs_state: false,
+                    map_shift: None,
                 },
                 &mut best,
             );
@@ -850,6 +918,17 @@ fn encode_interval(
     // REGIONS) with an exact sparse remainder.
     if sparse_points.len() > COPY_MIN_SPARSE {
         if let Some(d) = copy_candidate(enc, target_samples) {
+            consider(d, &mut best);
+        }
+    }
+
+    // V.1.5 global video structure: predict the whole plane from the previous
+    // observation through a canonical fixed-point map (translation / rotzoom /
+    // affine proposals, brief §61–§63) with an exact residual remainder. Also
+    // attempted only when the sparse drift is non-trivial; the exact byte cost
+    // decides against every other family above.
+    if !opts.disable_global && sparse_points.len() > COPY_MIN_SPARSE {
+        if let Some(d) = global_candidate(enc, target_samples, opts) {
             consider(d, &mut best);
         }
     }
@@ -945,6 +1024,7 @@ fn copy_candidate(enc: &mut PlaneEncoder, target: &[u32]) -> Option<Decision> {
             bytes: interval_bytes(&ops),
             ops,
             syncs_state: false,
+            map_shift: None,
         });
     }
     points.sort_unstable_by_key(|&(x, y, _)| (x, y));
@@ -960,7 +1040,168 @@ fn copy_candidate(enc: &mut PlaneEncoder, target: &[u32]) -> Option<Decision> {
         bytes: interval_bytes(&ops),
         ops,
         syncs_state: false,
+        map_shift: None,
     })
+}
+
+// ---------------------------------------------------------------------------
+// V.1.5 global video structure (whole-plane prediction from the previous
+// observation through a canonical fixed-point map; brief §61–§63, §248)
+// ---------------------------------------------------------------------------
+
+/// The deterministic family label of a motion-model class.
+fn class_label(class: MotionClass) -> &'static str {
+    match class {
+        MotionClass::Translation => FAMILY_GLOBAL_TRANSLATION,
+        MotionClass::Rotzoom => FAMILY_GLOBAL_ROTZOOM,
+        MotionClass::Affine => FAMILY_GLOBAL_AFFINE,
+    }
+}
+
+/// V.1.5: simulate a whole-plane `GlobalPredict` over the committed render
+/// (normative mirror of the core op): every destination sample whose mapped
+/// source lies inside the previous plane is overwritten with that sample;
+/// out-of-bounds destinations keep the committed render. `false` when a
+/// mapped coordinate overflows the canonical arithmetic (such a map is not
+/// materializable and its candidate is skipped).
+fn sim_warp(base: &mut [u32], prev: &[u32], w: u32, h: u32, map: GlobalMap) -> bool {
+    let (dw, dh) = (i64::from(w), i64::from(h));
+    for y in 0..dh {
+        for x in 0..dw {
+            let Some((su, sv)) = map.source(x, y) else {
+                return false;
+            };
+            if su < 0 || sv < 0 || su >= dw || sv >= dh {
+                continue;
+            }
+            let k = (y * i64::from(w) + x) as usize;
+            base[k] = prev[(sv * i64::from(w) + su) as usize];
+        }
+    }
+    true
+}
+
+/// Build the complete exact global-motion decision for one quantized map:
+/// warp the previous observation over the committed render, close the
+/// mismatch with the cheaper of the sparse / transform residuals, and report
+/// the family label + chosen precision. `None` when the map is not
+/// materializable under the canonical rule.
+fn warp_decision(
+    enc: &PlaneEncoder,
+    target: &[u32],
+    class: MotionClass,
+    map: GlobalMap,
+) -> Option<Decision> {
+    let (w, h) = (enc.w, enc.h);
+    let mut sim = enc.state.clone();
+    if !sim_warp(&mut sim, &enc.prev, w, h, map) {
+        return None;
+    }
+    let mut points: Vec<(i32, i32, u16)> = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            let k = (y * w + x) as usize;
+            if sim[k] != target[k] {
+                points.push((x as i32, y as i32, target[k] as u16));
+            }
+        }
+    }
+    let mut ops = vec![PlaneOp::GlobalPredict { map }];
+    if !points.is_empty() {
+        points.sort_unstable_by_key(|&(x, y, _)| (x, y));
+        let sparse = encode_plane_residual(&points).ok();
+        // A transform residual is priced too (the natural-video case: a dense
+        // but smooth whole-plane delta is far cheaper coded than sparse); the
+        // cheaper of the two closes the warp exactly.
+        let transform = {
+            let sp = plane_like(enc, &sim).ok()?;
+            let tp = plane_like(enc, target).ok()?;
+            encode_plane_transform_block(&sp, &tp)
+        };
+        let sparse_bytes = sparse.as_ref().map(|b| 1 + 8 + b.len() as u64);
+        let transform_bytes = transform.as_ref().map(|b| 1 + 8 + b.len() as u64);
+        match (sparse_bytes, transform_bytes) {
+            (Some(sb), Some(tb)) if tb < sb => {
+                ops.push(PlaneOp::TransformResidual {
+                    block: transform.expect("present"),
+                });
+            }
+            (Some(_), _) => ops.push(PlaneOp::Residual {
+                block: sparse.expect("present"),
+            }),
+            (None, Some(_)) => ops.push(PlaneOp::TransformResidual {
+                block: transform.expect("present"),
+            }),
+            (None, None) => return None,
+        }
+    }
+    let bytes = interval_bytes(&ops);
+    if bytes == 0 {
+        return None;
+    }
+    Some(Decision {
+        family: class_label(class),
+        bytes,
+        ops,
+        syncs_state: false,
+        map_shift: Some(map.shift.code()),
+    })
+}
+
+/// V.1.5 global-motion candidate for one interval of one plane: run the
+/// deterministic bounded estimator over (previous observation → target),
+/// select the best model class at Q8 by complete bytes, then price that
+/// class at every registry precision (or the forced one) and return the
+/// cheapest complete decision. The estimator is a proposal only — the
+/// normative simulation + residual closure above decide everything.
+fn global_candidate(
+    enc: &mut PlaneEncoder,
+    target: &[u32],
+    opts: &EncodeOptions,
+) -> Option<Decision> {
+    let (w, h) = (enc.w, enc.h);
+    let mut spent = 0u64;
+    let tol = match_tolerance(enc.depth);
+    let hyps: Vec<GlobalHypothesis> = estimate_global(&enc.prev, target, w, h, tol, &mut spent)?;
+    enc.search_work = enc.search_work.saturating_add(spent);
+    let plane_work = u64::from(w) * u64::from(h) * 2;
+    // Class selection at Q8 (cheapest complete bytes; family-order tie).
+    let mut best_q8: Option<(Decision, MotionClass, [f64; 6])> = None;
+    for hyp in hyps {
+        let map = GlobalMap::quantize(MapShift::Q8, &hyp.params);
+        enc.search_work = enc.search_work.saturating_add(plane_work);
+        if let Some(d) = warp_decision(enc, target, hyp.class, map) {
+            let better = match &best_q8 {
+                None => true,
+                Some((b, _, _)) => (d.bytes, order_of(d.family)) < (b.bytes, order_of(b.family)),
+            };
+            if better {
+                best_q8 = Some((d, hyp.class, hyp.params));
+            }
+        }
+    }
+    let (_, class, params) = best_q8?;
+    // Precision pricing of the winning class (§62 court — measured, never
+    // assumed; ties prefer the lower precision because ALL is ascending).
+    let shifts: Vec<MapShift> = match opts.map_shift {
+        Some(s) => vec![s],
+        None => MapShift::ALL.to_vec(),
+    };
+    let mut best: Option<Decision> = None;
+    for shift in shifts {
+        let map = GlobalMap::quantize(shift, &params);
+        enc.search_work = enc.search_work.saturating_add(plane_work);
+        if let Some(d) = warp_decision(enc, target, class, map) {
+            let better = match &best {
+                None => true,
+                Some(b) => (d.bytes, order_of(d.family)) < (b.bytes, order_of(b.family)),
+            };
+            if better {
+                best = Some(d);
+            }
+        }
+    }
+    best
 }
 
 /// Search one box for the displacement whose copy from the previous
@@ -1195,7 +1436,8 @@ mod tests {
             put(&mut samples, 4 + step * 2);
             let target = mk(&samples);
             let samples = sample_vec(target.data());
-            let (decision, _) = encode_interval(&mut enc, &target, &samples);
+            let (decision, _) =
+                encode_interval(&mut enc, &target, &samples, &EncodeOptions::default());
             let d = decision.expect("a decision");
             if step == 1 {
                 // The sprite's first appearance cannot come from the previous

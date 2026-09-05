@@ -1,9 +1,9 @@
 # PROJECT_STATE
 
-**Current head:** Phase V.1 (video half) — V.1.4 existing-family generalization SEALED.
-**Current phase:** V.1 (Universal Procedural Video Codec — video half of the post-U research programme). V.1.0 audit + V.1.1 media domain + V.1.2 multiplane core + V.1.3 import bridge + V.1.4 existing-family generalization done; **next: V.1.5 global video structure** (global translation/rotzoom/affine proposals over real video). V.2 (procedural audio) is separate and later.
+**Current head:** Phase V.1 (video half) — V.1.5 global video structure SEALED.
+**Current phase:** V.1 (Universal Procedural Video Codec — video half of the post-U research programme). V.1.0 audit + V.1.1 media domain + V.1.2 multiplane core + V.1.3 import bridge + V.1.4 existing-family generalization + V.1.5 global video structure done; **next: V.1.6 local motion** (region translation / bounded motion field over the plane domain). V.2 (procedural audio) is separate and later.
 **Phase order:** master brief §64 A→U sealed; post-U programme = V.1 video then V.2 audio, each executed in its own brief's subphase order (V.1: V.1.1 → V.1.23, entry-gated).
-**Format version:** v1 (`.vole`, permanent — goldens unchanged) · v2 + video universe v2 (header-prefix dispatch), core container grammar frozen at V.1.2 and **deliberately extended + re-frozen at V.1.4** (feature bit 0x1 family extension; additive — old bytes unchanged; `docs/format-v2.md`); both parse forever, neither reinterprets the other.
+**Format version:** v1 (`.vole`, permanent — goldens unchanged) · v2 + video universe v2 (header-prefix dispatch), core container grammar frozen at V.1.2 and **deliberately extended + re-frozen at V.1.4** (feature bit 0x1 family extension) **and at V.1.5** (feature bit 0x2 global-motion extension); all additive — old bytes unchanged; `docs/format-v2.md`); both parse forever, neither reinterprets the other.
 
 ## Completed (measured, courted, sealed)
 
@@ -391,18 +391,44 @@ deterministic tie order, proves every observation sample-exact, and reports
 per-family accounting against the RAW floor. Receipt `docs/phase-v1-4.md`;
 evidence `evidence/campaigns/phase-v1-4-existing-family-generalization-…/`;
 369 dev / 371 all-features tests, 0 failures, v1 goldens + V.1.2 golden
-bytes unchanged. Next concrete action: **V.1.5 global video structure** —
-global translation / rotzoom / affine proposals over real video with
-fixed-point normative materialization (brief §248).
-
-## Correct, decided, waiting
+bytes unchanged.
+**V.1.5 global video structure complete and SEALED**: the normative
+**GlobalPredict** canvas op (`media/global.rs` + `core.rs` + `wire.rs`, tag
+`0x32` under feature bit `0x2`) predicts the whole plane from the previous
+materialized observation through a canonical fixed-point map — the sealed
+Phase-L integer rule at a declared precision from the **map-shift registry**
+{Q8, Q12, Q16} (brief §62), CopyRect clip rule for out-of-bounds sources,
+work-capped by the new `Limits.max_motion_work`; hostile records (unknown
+shift, out-of-domain coefficients, op without the bit) fail closed typed. The
+deterministic bounded **estimator** (`estimate_global`; f64 proposal-only)
+proposes translation over a 2× box-downsample pyramid and rotzoom/affine by
+damped least-squares fits, quantized into the normative map and verified by
+normative simulation + exact residual + complete bytes. The family encoder
+gains `global_translation` / `global_rotzoom` / `global_affine` candidates
+with per-record precision priced at every shift and reported (`EncodeOptions
+{ map_shift, disable_global }`, `EncodeReport.map_shift_*`). Measured
+(release): pan 96×64 6 obs 6 643 B vs 30 975 B RAW floor (4.66×; ablation
+without global = RAW floor exactly); zoom 18 673 B < 20 735 B with the §62
+precision court returning identical Q8/Q12/Q16 bytes (tie → Q8, reported);
+10-bit YUV420 multiplane pan 11 619 B vs 23 805 B RAW (2.05×), all 15
+plane-intervals `global_translation` per plane on its own grid; noise = RAW
+floor with 0 global observations. The v2 grammar was deliberately extended +
+re-frozen at V.1.5 (additive; V.1.5 golden
+`2791d62289d601a59ce0d1f0884738a6f4d939657cc438666f0a72500ecbbae9` pinned).
+Receipt `docs/phase-v1-5.md`; evidence
+`evidence/campaigns/phase-v1-5-global-video-structure-…/`; dev 397 +
+all-features + release all green, 0 failures, v1 goldens + the V.1.2/V.1.4
+golden bytes unchanged. Next concrete action: **V.1.6 local motion** —
+region translation / bounded motion field over the plane domain (brief §249,
+§64–§66).
 
 ## Explicit ordering for the remaining ladder (each gate-passed before next)
 
 The post-U research programme runs in its own briefs' subphase order:
 V.1 video: V.1.0 audit (done) → V.1.1 canonical media domain (done) → V.1.2
 multiplane core + frozen v2 core wire (done) → V.1.3 import bridge (done) →
-V.1.4 existing-family generalization (done) → V.1.5–V.1.10
+V.1.4 existing-family generalization (done) → V.1.5 global video structure
+(done) → V.1.6–V.1.10
 new predictor families in ladder order → V.1.11–V.1.12 hierarchical inverse +
 DSFB → V.1.13–V.1.15 target materializer + headless direct + damage →
 V.1.16–V.1.18 surface + streaming decoder + seek → V.1.19–V.1.22 real media +
@@ -564,6 +590,20 @@ packed-layout unpacking are V.1.2/V.1.3 scope (registry declares their
 canonical targets now). New typed errors: `InvalidTimeBase`,
 `TimeNotRepresentable`, `GeometryMismatch`, `InvalidSamples`,
 `UnsupportedPixelLayout`, `EpochViolation`.
+
+Phase V.1.5 additions (global video structure): the greedy encoder holds a
+settled pan position with per-interval identity warps instead of re-syncing
+once (per-interval cost honest; temporal-span promotion is V.1.11); with
+nearest-neighbour sampling a zoom/rotate map and an identity map leave
+residuals of the same magnitude, so the measured winner on the V.1.5 zoom
+footage is `global_translation` — the rotzoom/affine byte advantage is
+recorded as gated on V.1.7's committed integer interpolation; the §62
+precision court returned identical bytes at Q8/Q12/Q16 on that footage (tie
+→ Q8, per-shift bytes reported), and the estimator is deterministic per
+machine (f64 proposal-only, non-normative); cross-plane decoder-side shared
+visual-motion geometry (§47/§48) is deferred to the V.1.6/V.1.7 container
+work; real-codec file import → encode is V.1.19's seal gate (V.1.5 courts
+dense natural-like raster footage in-crate).
 
 Closed by Phase O: stable residuals previously paid one-shot per frame for
 the life of a repeated difference — residual promotion now converts a run of
