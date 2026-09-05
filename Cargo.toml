@@ -1,6 +1,6 @@
 [package]
 name = "vole-video"
-version = "0.21.0"
+version = "0.22.0"
 edition = "2021"
 rust-version = "1.98"
 description = "VOLE — Video Object Layer Engine. Deterministic procedural video storage, transport, inverse proceduralization and materialization."
